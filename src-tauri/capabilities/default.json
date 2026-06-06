@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "cmd": "", "name": "", "sidecar": false }
+      ]
+    }
+  ]
+}

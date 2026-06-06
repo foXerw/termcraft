@@ -1,0 +1,31 @@
+[package]
+name = "termcraft"
+version = "0.1.0"
+description = "A highly customizable Telnet/SSH terminal tool"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "termcraft_lib"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+russh = "0.45"
+russh-keys = "0.45"
+async-trait = "0.1"
+portable-pty = "0.8"
+libtelnet-rs = "2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+thiserror = "2"
+log = "0.4"
+dirs = "5"
