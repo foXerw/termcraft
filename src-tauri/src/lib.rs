@@ -3,6 +3,7 @@ mod preset;
 mod config;
 mod errors;
 mod ipc_commands;
+mod security;
 
 use connection::manager::ConnectionManager;
 use ipc_commands::AppState;

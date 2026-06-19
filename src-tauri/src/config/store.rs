@@ -2,10 +2,12 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::connection::ConnectionConfig;
+use crate::connection::AuthConfig;
 use crate::errors::AppError;
 use crate::preset::models::{Preset, PresetGroup};
 use crate::preset::models::ScheduledTask;
 use crate::config::models::AppSettings;
+use crate::security::credentials;
 
 /// Get the data directory for TermCraft
 fn data_dir() -> Result<PathBuf, AppError> {
@@ -54,12 +56,64 @@ fn write_json<T: serde::Serialize>(path: &PathBuf, items: &[T]) -> Result<(), Ap
 
 pub fn load_connection_configs() -> Result<Vec<ConnectionConfig>, AppError> {
     let dir = data_dir()?;
-    read_json::<ConnectionConfig>(&dir.join("connections.json"))
+    let mut configs = read_json::<ConnectionConfig>(&dir.join("connections.json"))?;
+
+    // Hydrate secrets back from the OS credential store. For legacy plaintext
+    // configs (password present on disk), opportunistically migrate them into
+    // the keyring now; they will be persisted as empty markers on next save.
+    for config in &mut configs {
+        match config.auth.as_mut() {
+            Some(AuthConfig::Password { password }) => {
+                if !password.is_empty() {
+                    // Legacy plaintext on disk — migrate into the keyring.
+                    credentials::set_secret(&config.id, credentials::PASSWORD, password)?;
+                } else if let Some(stored) =
+                    credentials::get_secret(&config.id, credentials::PASSWORD)?
+                {
+                    *password = stored;
+                }
+            }
+            Some(AuthConfig::PublicKey { passphrase, .. }) => {
+                if let Some(p) = passphrase.as_ref().filter(|p| !p.is_empty()) {
+                    credentials::set_secret(&config.id, credentials::PASSPHRASE, p)?;
+                    *passphrase = None;
+                } else if let Some(stored) =
+                    credentials::get_secret(&config.id, credentials::PASSPHRASE)?
+                {
+                    *passphrase = Some(stored);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(configs)
 }
 
 pub fn save_connection_configs(configs: &[ConnectionConfig]) -> Result<(), AppError> {
+    // Strip secrets into the OS credential store before writing to disk so the
+    // JSON file only ever holds empty markers, never plaintext.
+    let mut redacted: Vec<ConnectionConfig> = configs.to_vec();
+    for config in &mut redacted {
+        match config.auth.as_mut() {
+            Some(AuthConfig::Password { password }) => {
+                if !password.is_empty() {
+                    credentials::set_secret(&config.id, credentials::PASSWORD, password)?;
+                    *password = String::new();
+                }
+            }
+            Some(AuthConfig::PublicKey { passphrase, .. }) => {
+                if let Some(p) = passphrase.as_ref().filter(|p| !p.is_empty()) {
+                    credentials::set_secret(&config.id, credentials::PASSPHRASE, p)?;
+                    *passphrase = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
     let dir = data_dir()?;
-    write_json(&dir.join("connections.json"), configs)
+    write_json(&dir.join("connections.json"), &redacted)
 }
 
 pub fn save_connection_config(config: &ConnectionConfig) -> Result<(), AppError> {
@@ -74,6 +128,10 @@ pub fn save_connection_config(config: &ConnectionConfig) -> Result<(), AppError>
 }
 
 pub fn delete_connection_config(id: &str) -> Result<(), AppError> {
+    // Drop any stored secrets so the keyring doesn't outlive the config.
+    let _ = credentials::delete_secret(id, credentials::PASSWORD);
+    let _ = credentials::delete_secret(id, credentials::PASSPHRASE);
+
     let mut configs = load_connection_configs()?;
     configs.retain(|c| c.id != id);
     save_connection_configs(&configs)
