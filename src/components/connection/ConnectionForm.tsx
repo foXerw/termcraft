@@ -115,6 +115,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       <Form
         form={form}
         layout="vertical"
+        autoComplete="off"
         initialValues={{
           conn_type: "SSH",
           port: 22,
@@ -132,13 +133,13 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         </Form.Item>
 
         <Form.Item name="name" label="名称">
-          <Input placeholder="连接名称（可选）" />
+          <Input placeholder="连接名称（可选）" autoComplete="off" />
         </Form.Item>
 
         {connType !== "LocalShell" && (
           <>
             <Form.Item name="host" label="主机" rules={[{ required: true, message: "请输入主机地址" }]}>
-              <Input placeholder="192.168.1.1 或 example.com" />
+              <Input placeholder="192.168.1.1 或 example.com" autoComplete="off" />
             </Form.Item>
             <Form.Item name="port" label="端口">
               <InputNumber min={1} max={65535} style={{ width: "100%" }} />
@@ -149,7 +150,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         {connType === "SSH" && (
           <>
             <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
-              <Input placeholder="root" />
+              <Input placeholder="root" autoComplete="off" />
             </Form.Item>
             <Form.Item name="auth_type" label="认证方式">
               <Radio.Group>
@@ -164,17 +165,17 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
                 if (authType === "password") {
                   return (
                     <Form.Item name="password" label="密码" rules={[{ required: true }]}>
-                      <Input.Password />
+                      <Input.Password autoComplete="new-password" />
                     </Form.Item>
                   );
                 } else if (authType === "key") {
                   return (
                     <>
                       <Form.Item name="key_path" label="密钥路径" rules={[{ required: true }]}>
-                        <Input placeholder="/path/to/id_rsa" />
+                        <Input placeholder="/path/to/id_rsa" autoComplete="off" />
                       </Form.Item>
                       <Form.Item name="passphrase" label="密钥密码">
-                        <Input.Password placeholder="可选" />
+                        <Input.Password placeholder="可选" autoComplete="new-password" />
                       </Form.Item>
                     </>
                   );
@@ -187,7 +188,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
 
         {connType === "LocalShell" && (
           <Form.Item name="shell" label="Shell 程序">
-            <Input placeholder="留空使用默认 Shell（Windows: cmd.exe, Linux: bash）" />
+            <Input placeholder="留空使用默认 Shell（Windows: cmd.exe, Linux: bash）" autoComplete="off" />
           </Form.Item>
         )}
 
