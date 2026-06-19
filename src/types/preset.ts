@@ -15,6 +15,8 @@ export interface CommandItem {
   command: string;
   delay_ms: number;
   wait_for?: WaitCondition;
+  /** Abort = stop the whole preset on failure; Continue = log and proceed. */
+  on_fail?: 'Abort' | 'Continue';
   enabled: boolean;
 }
 
@@ -22,6 +24,8 @@ export interface WaitCondition {
   pattern: string;
   timeout_ms: number;
   match_type: 'Exact' | 'Contains' | 'Regex';
+  /** Found = pattern appearing means success; NotFound = appearing means failure. */
+  expect?: 'Found' | 'NotFound';
 }
 
 export type ExecutionMode =
@@ -50,6 +54,8 @@ export interface PresetExecutionStatus {
   total_commands: number;
   current_loop: number;
   message?: string;
+  command_succeeded?: boolean;
+  captured_snippet?: string;
 }
 
 export interface ScheduledTask {

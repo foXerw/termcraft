@@ -175,3 +175,13 @@ html, body, #root {
   border-color: var(--border-color) !important;
   color: var(--text-primary) !important;
 }
+/* Preset list: make tree node titles fill the row so action buttons
+   (edit/delete) stay right-aligned and aligned across rows. */
+.preset-tree .ant-tree-node-content-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.preset-tree .ant-tree-title {
+  display: block;
+  width: 100%;
+}

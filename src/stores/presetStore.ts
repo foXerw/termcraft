@@ -12,6 +12,7 @@ interface PresetState {
   updatePreset: (preset: Preset) => void;
   removePreset: (id: string) => void;
   addGroup: (group: PresetGroup) => void;
+  updateGroup: (group: PresetGroup) => void;
   removeGroup: (id: string) => void;
   updateExecutionStatus: (execId: string, status: PresetExecutionStatus) => void;
   clearExecutionStatus: (execId: string) => void;
@@ -42,6 +43,11 @@ export const usePresetStore = create<PresetState>((set) => ({
 
   addGroup: (group) =>
     set((state) => ({ groups: [...state.groups, group] })),
+
+  updateGroup: (group) =>
+    set((state) => ({
+      groups: state.groups.map((g) => (g.id === group.id ? group : g)),
+    })),
 
   removeGroup: (id) =>
     set((state) => ({

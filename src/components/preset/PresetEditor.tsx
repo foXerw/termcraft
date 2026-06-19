@@ -20,7 +20,13 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ preset, onClose }) => {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(
     preset?.execution_mode || { type: "Batch", stop_on_error: false }
   );
-  const [selectedGroup] = useState<string | null>(preset?.group_id || null);
+  const groups = usePresetStore((s) => s.groups);
+  // Default the group for new presets: keep an existing preset's group, else
+  // fall back to the first group (so new presets don't silently land in
+  // "未分组" once groups exist). New preset with no groups → null (ungrouped).
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(
+    preset?.group_id ?? groups[0]?.id ?? null
+  );
 
   const addCommand = () => {
     setCommands([
@@ -29,6 +35,9 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ preset, onClose }) => {
         id: crypto.randomUUID(),
         command: "",
         delay_ms: 0,
+        // New commands default to Abort so a configured wait actually halts
+        // the run on failure (the common intent); users can switch to Continue.
+        on_fail: "Abort",
         enabled: true,
       },
     ]);
@@ -97,13 +106,26 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ preset, onClose }) => {
       width={640}
       okText="保存"
     >
-      <Form form={form} layout="vertical" initialValues={{ name: preset?.name, description: preset?.description }}>
+      <Form form={form} layout="vertical" autoComplete="off" initialValues={{ name: preset?.name, description: preset?.description }}>
         <Form.Item name="name" label="预设名称" rules={[{ required: true, message: "请输入预设名称" }]}>
-          <Input placeholder="例如：部署脚本、健康检查" />
+          <Input placeholder="例如：部署脚本、健康检查" autoComplete="off" />
         </Form.Item>
 
         <Form.Item name="description" label="描述">
-          <Input.TextArea placeholder="预设用途说明" rows={2} />
+          <Input.TextArea placeholder="预设用途说明" rows={2} autoComplete="off" />
+        </Form.Item>
+
+        <Form.Item label="所属分组">
+          <Select
+            value={selectedGroup ?? undefined}
+            allowClear
+            placeholder="未分组"
+            onChange={(v) => setSelectedGroup(v ?? null)}
+          >
+            {groups.map((g) => (
+              <Select.Option key={g.id} value={g.id}>{g.name}</Select.Option>
+            ))}
+          </Select>
         </Form.Item>
 
         {/* Execution mode */}
@@ -174,14 +196,21 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ preset, onClose }) => {
                   placeholder="命令内容 (支持 {{变量名}} 替换)"
                   value={cmd.command}
                   onChange={(e) => updateCommand(i, "command", e.target.value)}
+                  autoComplete="off"
                 />
                 <Space>
                   <span style={{ fontSize: 12 }}>延迟(ms):</span>
                   <InputNumber value={cmd.delay_ms} min={0} onChange={(v) => updateCommand(i, "delay_ms", v || 0)} size="small" />
+                  <span style={{ fontSize: 12 }}>失败时:</span>
+                  <Select value={cmd.on_fail || "Abort"} size="small" style={{ width: 90 }}
+                    onChange={(v) => updateCommand(i, "on_fail", v)}>
+                    <Select.Option value="Abort">中止</Select.Option>
+                    <Select.Option value="Continue">继续</Select.Option>
+                  </Select>
                   {cmd.wait_for ? (
                     <Tag color="purple" style={{ fontSize: 10 }}>⏳ 等待: {cmd.wait_for.pattern}</Tag>
                   ) : (
-                    <Button type="link" size="small" onClick={() => updateCommand(i, "wait_for", { pattern: "", timeout_ms: 5000, match_type: "Contains" })}>
+                    <Button type="link" size="small" onClick={() => updateCommand(i, "wait_for", { pattern: "", timeout_ms: 5000, match_type: "Contains", expect: "Found" })}>
                       添加条件等待
                     </Button>
                   )}
@@ -196,13 +225,18 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ preset, onClose }) => {
                 </Space>
                 {cmd.wait_for && (
                   <Card size="small" type="inner" style={{ background: "var(--bg-tertiary)" }}>
-                    <Space>
+                    <Space wrap>
                       <Input placeholder="等待匹配模式" value={cmd.wait_for.pattern}
-                        onChange={(e) => updateCommand(i, "wait_for", { ...cmd.wait_for!, pattern: e.target.value })} />
-                      <Select value={cmd.wait_for.match_type} onChange={(v) => updateCommand(i, "wait_for", { ...cmd.wait_for!, match_type: v })} size="small">
+                        onChange={(e) => updateCommand(i, "wait_for", { ...cmd.wait_for!, pattern: e.target.value })}
+                        autoComplete="off" />
+                      <Select value={cmd.wait_for.match_type} onChange={(v) => updateCommand(i, "wait_for", { ...cmd.wait_for!, match_type: v })} size="small" style={{ width: 110 }}>
                         <Select.Option value="Exact">精确匹配</Select.Option>
                         <Select.Option value="Contains">包含匹配</Select.Option>
                         <Select.Option value="Regex">正则匹配</Select.Option>
+                      </Select>
+                      <Select value={cmd.wait_for.expect || "Found"} onChange={(v) => updateCommand(i, "wait_for", { ...cmd.wait_for!, expect: v })} size="small" style={{ width: 110 }}>
+                        <Select.Option value="Found">出现=成功</Select.Option>
+                        <Select.Option value="NotFound">出现=失败</Select.Option>
                       </Select>
                       <InputNumber value={cmd.wait_for.timeout_ms} min={0} onChange={(v) => updateCommand(i, "wait_for", { ...cmd.wait_for!, timeout_ms: v || 5000 })} size="small" />
                       <span style={{ fontSize: 12 }}>超时(ms)</span>

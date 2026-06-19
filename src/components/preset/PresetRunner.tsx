@@ -154,21 +154,37 @@ const PresetRunner: React.FC<PresetRunnerProps> = ({ preset, onClose }) => {
         </Space>
       </div>
 
-      {/* Progress */}
-      {status && isRunning && (
+      {/* Progress / outcome */}
+      {status && (
         <div style={{ marginTop: 16 }}>
           <Progress percent={Math.round(progress)} status={
             status.state === "Running" ? "active" :
             status.state === "Completed" ? "success" :
             status.state === "Failed" ? "exception" : "normal"
           } />
-          <Typography.Text style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            {status.message || ""}
-          </Typography.Text>
+          <Space style={{ marginTop: 4, width: "100%" }}>
+            {status.command_succeeded === true && (
+              <Typography.Text type="success" style={{ fontSize: 12 }}>✓ 匹配</Typography.Text>
+            )}
+            {status.command_succeeded === false && (
+              <Typography.Text type="danger" style={{ fontSize: 12 }}>✗ 未通过</Typography.Text>
+            )}
+            <Typography.Text style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {status.message || ""}
+            </Typography.Text>
+          </Space>
           {preset.execution_mode.type === "Loop" && (
             <Typography.Text style={{ fontSize: 12 }}>
               第 {status.current_loop + 1} 次循环
             </Typography.Text>
+          )}
+          {status.captured_snippet && (
+            <Input.TextArea
+              value={status.captured_snippet}
+              readOnly
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              style={{ marginTop: 8, fontFamily: "monospace", fontSize: 12 }}
+            />
           )}
         </div>
       )}
