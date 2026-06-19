@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Modal, Form, Input, Select, InputNumber, Switch, Radio, Button, message } from "antd";
+import { Modal, Form, Input, Select, InputNumber, Switch, Radio, Button, Space, message } from "antd";
 import { useAppStore } from "../../stores/appStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { ConnectionConfig } from "../../types/connection";
@@ -56,6 +56,43 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
     return { type: "Agent" };
   };
 
+  // Build a ConnectionConfig from flat form values. Reuses existing id/tags
+  // when editing, otherwise generates a fresh id.
+  const buildConfig = (values: any, id?: string): ConnectionConfig => ({
+    id: id ?? crypto.randomUUID(),
+    name: values.name || `${values.host || '本地Shell'}:${values.port || (values.conn_type === 'SSH' ? 22 : values.conn_type === 'Telnet' ? 23 : '')}`,
+    conn_type: values.conn_type,
+    host: values.host,
+    port: values.port,
+    username: values.username,
+    auth: buildAuth(values),
+    shell: values.shell,
+    tags: initialValues?.tags ?? [],
+  });
+
+  // Save without connecting — used to register a connection just for
+  // reachability monitoring (e.g. testing a server you don't want to log into).
+  const handleSaveOnly = async () => {
+    setConnecting(true);
+    try {
+      const values = await form.validateFields();
+      const config = buildConfig(values);
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_connection_config", { config });
+      addConfig(config);
+      message.success("已保存");
+      form.resetFields();
+      closeConnectionForm();
+    } catch (e: any) {
+      // validateFields rejection returns errorFields without .message
+      if (e?.errorFields) return;
+      console.error("Save failed:", e);
+      message.error(`保存失败: ${e}`);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const handleConnect = async (values: any) => {
     setConnecting(true);
     try {
@@ -63,17 +100,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
 
       // --- Edit mode: persist the updated config (same id), no auto-connect. ---
       if (isEdit && initialValues) {
-        const updated: ConnectionConfig = {
-          id: initialValues.id,
-          name: values.name || `${values.host || '本地Shell'}:${values.port || (values.conn_type === 'SSH' ? 22 : values.conn_type === 'Telnet' ? 23 : '')}`,
-          conn_type: values.conn_type,
-          host: values.host,
-          port: values.port,
-          username: values.username,
-          auth: buildAuth(values),
-          shell: values.shell,
-          tags: initialValues.tags ?? [],
-        };
+        const updated = buildConfig(values, initialValues.id);
         await invoke("save_connection_config", { config: updated });
         updateConfig(updated);
         message.success("连接已更新");
@@ -91,17 +118,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       setChannel(id, channel);
 
       // Build the connection config
-      const config: ConnectionConfig = {
-        id,
-        name: values.name || `${values.host || '本地Shell'}:${values.port || (values.conn_type === 'SSH' ? 22 : values.conn_type === 'Telnet' ? 23 : '')}`,
-        conn_type: values.conn_type,
-        host: values.host,
-        port: values.port,
-        username: values.username,
-        auth: buildAuth(values),
-        shell: values.shell,
-        tags: [],
-      };
+      const config = buildConfig(values, id);
 
       // Connect based on type — MUST pass channel to Rust command
       if (values.conn_type === "SSH") {
@@ -250,9 +267,16 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         )}
 
         <Form.Item>
-          <Button type="primary" htmlType="submit" block loading={connecting}>
-            {isEdit ? "保存" : "连接"}
-          </Button>
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            {/* New mode: extra "save without connecting" action for registering
+                a host just to monitor its reachability. */}
+            {!isEdit && (
+              <Button onClick={handleSaveOnly} loading={connecting}>仅保存</Button>
+            )}
+            <Button type="primary" htmlType="submit" loading={connecting}>
+              {isEdit ? "保存" : "连接"}
+            </Button>
+          </Space>
         </Form.Item>
       </Form>
     </Modal>
