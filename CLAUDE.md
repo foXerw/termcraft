@@ -47,6 +47,8 @@ All communication uses Tauri's IPC bridge:
 Rust backend persists JSON files atomically (write `.tmp` then rename) in `dirs::data_dir()/termcraft/`:
 - `connections.json`, `presets.json`, `groups.json`, `schedules.json`, `settings.json`
 
+Secrets (SSH/Telnet passwords and key passphrases) are **not** stored in `connections.json` — only empty markers are. Plaintext secrets live in the OS credential store (Windows Credential Manager / macOS Keychain / Linux Secret Service) via the `keyring` crate, keyed by `(com.termcraft.app, <conn_id>:<field>)`. The store layer (`src-tauri/src/security/credentials.rs`) strips secrets to the keyring before writing JSON and hydrates them back on load; deletion cleans up the keyring entry too.
+
 ### Key Entry Points
 
 | Layer | File | Role |
@@ -67,4 +69,3 @@ Several components are placeholders or TODOs:
 - Preset pause/resume: not fully implemented
 - PresetScheduler: only Interval mode; Cron is TODO
 - WaitCondition: defined but not used in execution
-- Connection edit: `handleEdit` just logs to console
