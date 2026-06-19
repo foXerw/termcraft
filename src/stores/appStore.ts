@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TerminalTab, AppSettings } from '../types/terminal';
+import { ConnectionConfig } from '../types/connection';
 
 // Store Tauri Channel instances keyed by connectionId
 // This allows TerminalView to pick up the channel created during connection
@@ -16,6 +17,8 @@ interface AppState {
 
   // Connection form dialog
   connectionFormOpen: boolean;
+  // When set, the connection form opens in edit mode pre-filled with this config
+  editingConfig: ConnectionConfig | null;
 
   // Tauri IPC Channels for each connection (connectionId -> Channel)
   channels: Map<string, any>;
@@ -27,7 +30,7 @@ interface AppState {
   updateTabAlive: (id: string, alive: boolean) => void;
   updateSettings: (settings: AppSettings) => void;
   toggleSidebar: () => void;
-  openConnectionForm: () => void;
+  openConnectionForm: (config?: ConnectionConfig) => void;
   closeConnectionForm: () => void;
   setChannel: (connectionId: string, channel: any) => void;
   removeChannel: (connectionId: string) => void;
@@ -50,6 +53,7 @@ export const useAppStore = create<AppState>((set) => ({
   settings: defaultSettings,
   sidebarCollapsed: false,
   connectionFormOpen: false,
+  editingConfig: null,
   channels: new Map(),
 
   addTab: (tab) =>
@@ -86,8 +90,10 @@ export const useAppStore = create<AppState>((set) => ({
   toggleSidebar: () =>
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
-  openConnectionForm: () => set({ connectionFormOpen: true }),
-  closeConnectionForm: () => set({ connectionFormOpen: false }),
+  openConnectionForm: (config) =>
+    set({ connectionFormOpen: true, editingConfig: config ?? null }),
+  closeConnectionForm: () =>
+    set({ connectionFormOpen: false, editingConfig: null }),
 
   setChannel: (connectionId, channel) =>
     set((state) => {

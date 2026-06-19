@@ -18,11 +18,71 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
   const closeConnectionForm = useAppStore((s) => s.closeConnectionForm);
   const setChannel = useAppStore((s) => s.setChannel);
   const addConfig = useConnectionStore((s) => s.addConfig);
+  const updateConfig = useConnectionStore((s) => s.updateConfig);
+
+  const isEdit = !!initialValues;
+
+  // Map a saved ConnectionConfig onto this form's flat field names. The form
+  // uses auth_type + separate password/key_path/passphrase fields, while the
+  // persisted config nests them under `auth`.
+  const buildInitialValues = (config?: ConnectionConfig) => {
+    const authType =
+      config?.auth?.type === "PublicKey" ? "key"
+        : config?.auth?.type === "Agent" ? "agent"
+        : "password";
+    return {
+      conn_type: config?.conn_type ?? "SSH",
+      name: config?.name,
+      host: config?.host,
+      port: config?.port ?? (config?.conn_type === "Telnet" ? 23 : 22),
+      username: config?.username,
+      shell: config?.shell,
+      auth_type: authType,
+      password: config?.auth?.type === "Password" ? config.auth.password : "",
+      key_path: config?.auth?.type === "PublicKey" ? config.auth.key_path : "",
+      passphrase: config?.auth?.type === "PublicKey" ? config.auth.passphrase : "",
+      save_config: true,
+    };
+  };
+
+  // Build the nested AuthConfig from flat form values.
+  const buildAuth = (values: any): ConnectionConfig["auth"] => {
+    if (values.auth_type === "password") {
+      return { type: "Password", password: values.password };
+    }
+    if (values.auth_type === "key") {
+      return { type: "PublicKey", key_path: values.key_path, passphrase: values.passphrase };
+    }
+    return { type: "Agent" };
+  };
 
   const handleConnect = async (values: any) => {
     setConnecting(true);
     try {
       const { invoke, Channel } = await import("@tauri-apps/api/core");
+
+      // --- Edit mode: persist the updated config (same id), no auto-connect. ---
+      if (isEdit && initialValues) {
+        const updated: ConnectionConfig = {
+          id: initialValues.id,
+          name: values.name || `${values.host || '本地Shell'}:${values.port || (values.conn_type === 'SSH' ? 22 : values.conn_type === 'Telnet' ? 23 : '')}`,
+          conn_type: values.conn_type,
+          host: values.host,
+          port: values.port,
+          username: values.username,
+          auth: buildAuth(values),
+          shell: values.shell,
+          tags: initialValues.tags ?? [],
+        };
+        await invoke("save_connection_config", { config: updated });
+        updateConfig(updated);
+        message.success("连接已更新");
+        form.resetFields();
+        closeConnectionForm();
+        return;
+      }
+
+      // --- New mode: connect now, optionally save. ---
       const id = crypto.randomUUID();
 
       // Create a Tauri Channel for this connection — Rust will stream output through it
@@ -38,11 +98,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         host: values.host,
         port: values.port,
         username: values.username,
-        auth: values.auth_type === "password"
-          ? { type: "Password", password: values.password }
-          : values.auth_type === "key"
-          ? { type: "PublicKey", key_path: values.key_path, passphrase: values.passphrase }
-          : { type: "Agent" },
+        auth: buildAuth(values),
         shell: values.shell,
         tags: [],
       };
@@ -105,7 +161,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
 
   return (
     <Modal
-      title="新建连接"
+      title={isEdit ? "编辑连接" : "新建连接"}
       open={open}
       onCancel={handleCancel}
       footer={null}
@@ -116,12 +172,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         form={form}
         layout="vertical"
         autoComplete="off"
-        initialValues={{
-          conn_type: "SSH",
-          port: 22,
-          auth_type: "password",
-          save_config: true,
-        }}
+        initialValues={buildInitialValues(initialValues)}
         onFinish={handleConnect}
       >
         <Form.Item name="conn_type" label="连接类型">
@@ -192,13 +243,15 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
           </Form.Item>
         )}
 
-        <Form.Item name="save_config" label="保存配置" valuePropName="checked">
-          <Switch />
-        </Form.Item>
+        {!isEdit && (
+          <Form.Item name="save_config" label="保存配置" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        )}
 
         <Form.Item>
           <Button type="primary" htmlType="submit" block loading={connecting}>
-            连接
+            {isEdit ? "保存" : "连接"}
           </Button>
         </Form.Item>
       </Form>

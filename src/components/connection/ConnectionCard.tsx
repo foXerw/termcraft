@@ -12,6 +12,7 @@ interface ConnectionCardProps {
 const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
   const addTab = useAppStore((s) => s.addTab);
   const setChannel = useAppStore((s) => s.setChannel);
+  const openConnectionForm = useAppStore((s) => s.openConnectionForm);
   const removeConfig = useConnectionStore((s) => s.removeConfig);
 
   // 双击连接 — 自动重连
@@ -77,10 +78,10 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
     }
   };
 
-  // 编辑（暂时只打印，后续实现编辑弹窗）
+  // 编辑连接配置 —— 打开复用的连接表单（编辑模式，预填该配置）
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log("Edit config:", config.id);
+    openConnectionForm(config);
   };
 
   const typeColors: Record<string, string> = {

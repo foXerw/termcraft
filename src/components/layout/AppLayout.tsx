@@ -11,6 +11,7 @@ const AppLayout: React.FC = () => {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const connectionFormOpen = useAppStore((s) => s.connectionFormOpen);
+  const editingConfig = useAppStore((s) => s.editingConfig);
   const openConnectionForm = useAppStore((s) => s.openConnectionForm);
   const closeConnectionForm = useAppStore((s) => s.closeConnectionForm);
 
@@ -32,7 +33,7 @@ const AppLayout: React.FC = () => {
               icon={<PlusOutlined />}
               size="small"
               style={{ marginLeft: 8 }}
-              onClick={openConnectionForm}
+              onClick={() => openConnectionForm()}
             />
           </div>
           <TerminalManager />
@@ -40,7 +41,7 @@ const AppLayout: React.FC = () => {
       </div>
 
       {/* Connection form dialog */}
-      <ConnectionForm open={connectionFormOpen} onCancel={closeConnectionForm} />
+      <ConnectionForm open={connectionFormOpen} initialValues={editingConfig ?? undefined} onCancel={closeConnectionForm} />
     </div>
   );
 };

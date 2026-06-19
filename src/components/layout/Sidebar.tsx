@@ -52,7 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
           </Space>
         </div>
         <Button type="dashed" icon={<PlusOutlined />} block size="small" style={{ marginBottom: 8 }}
-          onClick={openConnectionForm}>
+          onClick={() => openConnectionForm()}>
           新建连接
         </Button>
         <List
