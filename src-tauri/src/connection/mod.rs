@@ -29,6 +29,17 @@ pub fn tap_send(tap: &OutputTap, bytes: &[u8]) {
     }
 }
 
+/// Event name emitted when a connection's stream ends (EOF / shell exited /
+/// disconnected). Frontend removes the corresponding tab (or respawns the
+/// default local terminal) on receipt.
+pub const CLOSED_EVENT: &str = "connection_closed";
+
+/// Emit [`CLOSED_EVENT`] for `id`. Used by handlers when their read loop ends.
+pub fn emit_closed(app: &tauri::AppHandle, id: &str) {
+    use tauri::Emitter;
+    let _ = app.emit(CLOSED_EVENT, id.to_string());
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ConnType {

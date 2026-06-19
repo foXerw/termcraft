@@ -2,13 +2,15 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, MasterPty, Child};
 
-use crate::connection::{ConnType, OutputTap, new_output_tap, tap_send};
+use crate::connection::{ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
 use crate::errors::AppError;
+use tauri::AppHandle;
 
 pub struct LocalShellHandler {
     id: String,
     shell: String,
     output_tap: OutputTap,
+    app: AppHandle,
     master: Option<Arc<StdMutex<Box<dyn MasterPty + Send>>>>,
     writer: Option<Arc<StdMutex<Box<dyn std::io::Write + Send>>>>,
     child: Option<Box<dyn Child + Send + Sync>>,
@@ -17,11 +19,12 @@ pub struct LocalShellHandler {
 }
 
 impl LocalShellHandler {
-    pub fn new(id: String, shell: String) -> Self {
+    pub fn new(id: String, shell: String, app: AppHandle) -> Self {
         Self {
             id,
             shell,
             output_tap: new_output_tap(),
+            app,
             master: None,
             writer: None,
             child: None,
@@ -80,6 +83,8 @@ impl LocalShellHandler {
 
         // Start reading task
         let tap = self.output_tap.clone();
+        let app = self.app.clone();
+        let id = self.id.clone();
         let read_task = tokio::spawn(async move {
             let reader = {
                 let m = master.lock().unwrap();
@@ -104,6 +109,8 @@ impl LocalShellHandler {
                     }
                 }).await.ok();
             }
+            // Shell exited (e.g. user typed `exit`): notify the frontend.
+            emit_closed(&app, &id);
         });
 
         self.read_task = Some(read_task);

@@ -1,17 +1,33 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 
 use russh::*;
 use russh::client::{Handle, Handler, Session};
 use russh_keys::key::PublicKey as SshPublicKey;
 
-use crate::connection::{AuthConfig, ConnType, OutputTap, new_output_tap, tap_send};
+use crate::connection::{AuthConfig, ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
 use crate::errors::AppError;
 use tauri::ipc::InvokeResponseBody;
+use tauri::AppHandle;
 
-/// Custom client handler that forwards received data to an mpsc channel
+/// Custom client handler that forwards received data to an mpsc channel.
 struct SSHClientHandler {
     output_tx: mpsc::UnboundedSender<Vec<u8>>,
+    app: AppHandle,
+    id: String,
+    /// Guards against emitting the closed event more than once.
+    closed: Arc<AtomicBool>,
+}
+
+impl SSHClientHandler {
+    /// Emit `connection_closed` exactly once (shell exited, channel EOF, or the
+    /// transport disconnected).
+    fn notify_closed_once(&self) {
+        if !self.closed.swap(true, Ordering::SeqCst) {
+            emit_closed(&self.app, &self.id);
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -58,6 +74,46 @@ impl Handler for SSHClientHandler {
         let _ = self.output_tx.send(data.to_vec());
         Ok(())
     }
+
+    async fn channel_eof(
+        &mut self,
+        _channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Remote side closed the channel's stream (e.g. shell exited).
+        self.notify_closed_once();
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        _channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Channel fully closed.
+        self.notify_closed_once();
+        Ok(())
+    }
+
+    async fn exit_status(
+        &mut self,
+        _channel: ChannelId,
+        _exit_status: u32,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Remote process reported an exit status.
+        self.notify_closed_once();
+        Ok(())
+    }
+
+    async fn disconnected(
+        &mut self,
+        _reason: russh::client::DisconnectReason<Self::Error>,
+    ) -> Result<(), Self::Error> {
+        // Transport disconnected (network loss / server drop).
+        self.notify_closed_once();
+        Ok(())
+    }
 }
 
 pub struct SSHHandler {
@@ -67,6 +123,7 @@ pub struct SSHHandler {
     username: String,
     auth: AuthConfig,
     output_tap: OutputTap,
+    app: AppHandle,
     session_handle: Option<Handle<SSHClientHandler>>,
     channel: Option<Channel<client::Msg>>,
     alive: bool,
@@ -75,7 +132,7 @@ pub struct SSHHandler {
 }
 
 impl SSHHandler {
-    pub fn new(id: String, host: String, port: u16, username: String, auth: AuthConfig) -> Self {
+    pub fn new(id: String, host: String, port: u16, username: String, auth: AuthConfig, app: AppHandle) -> Self {
         Self {
             id,
             host,
@@ -83,6 +140,7 @@ impl SSHHandler {
             username,
             auth,
             output_tap: new_output_tap(),
+            app,
             session_handle: None,
             channel: None,
             alive: false,
@@ -100,7 +158,12 @@ impl SSHHandler {
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let config = client::Config::default();
-        let handler = SSHClientHandler { output_tx };
+        let handler = SSHClientHandler {
+            output_tx,
+            app: self.app.clone(),
+            id: self.id.clone(),
+            closed: Arc::new(AtomicBool::new(false)),
+        };
 
         let mut session_handle = client::connect(
             Arc::new(config),
@@ -179,6 +242,8 @@ impl SSHHandler {
     ) {
         if let Some(mut output_rx) = self.output_rx.take() {
             let tap = self.output_tap.clone();
+            let app = self.app.clone();
+            let id = self.id.clone();
             let task = tokio::spawn(async move {
                 while let Some(data) = output_rx.recv().await {
                     // Copy raw bytes to any output subscriber (preset engine) first.
@@ -192,6 +257,8 @@ impl SSHHandler {
                     let json_str = serde_json::to_string(&text).unwrap_or_default();
                     let _ = frontend_channel.send(InvokeResponseBody::Json(json_str));
                 }
+                // Stream ended (session closed / shell exited): notify the frontend.
+                emit_closed(&app, &id);
             });
             self.forward_task = Some(task);
         }

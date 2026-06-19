@@ -3,8 +3,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-use crate::connection::{ConnType, OutputTap, new_output_tap, tap_send};
+use crate::connection::{ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
 use crate::errors::AppError;
+use tauri::AppHandle;
 
 type WriteHalf = tokio::io::WriteHalf<TcpStream>;
 
@@ -13,18 +14,20 @@ pub struct TelnetHandler {
     host: String,
     port: u16,
     output_tap: OutputTap,
+    app: AppHandle,
     write_half: Option<Arc<Mutex<WriteHalf>>>,
     alive: bool,
     read_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TelnetHandler {
-    pub fn new(id: String, host: String, port: u16) -> Self {
+    pub fn new(id: String, host: String, port: u16, app: AppHandle) -> Self {
         Self {
             id,
             host,
             port,
             output_tap: new_output_tap(),
+            app,
             write_half: None,
             alive: false,
             read_task: None,
@@ -53,6 +56,8 @@ impl TelnetHandler {
 
         // Start reading task
         let tap = self.output_tap.clone();
+        let app = self.app.clone();
+        let id = self.id.clone();
         let read_task = tokio::spawn(async move {
             let mut buf = [0u8; 4096];
             use tokio::io::AsyncReadExt;
@@ -69,6 +74,8 @@ impl TelnetHandler {
                     Err(_) => break,
                 }
             }
+            // Connection ended (EOF / closed): notify the frontend.
+            emit_closed(&app, &id);
         });
 
         self.read_task = Some(read_task);

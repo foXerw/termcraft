@@ -32,9 +32,10 @@ pub async fn connect_ssh(
     username: String,
     auth: AuthConfig,
     channel: Channel,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut handler = SSHHandler::new(id.clone(), host, port, username, auth);
+    let mut handler = SSHHandler::new(id.clone(), host, port, username, auth, app);
     handler.connect()
         .await
         .map_err(|e| e.to_string())?;
@@ -52,9 +53,10 @@ pub async fn connect_telnet(
     host: String,
     port: u16,
     channel: Channel,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut handler = TelnetHandler::new(id.clone(), host, port);
+    let mut handler = TelnetHandler::new(id.clone(), host, port, app);
     handler.connect(channel)
         .await
         .map_err(|e| e.to_string())?;
@@ -68,10 +70,11 @@ pub async fn connect_local(
     id: String,
     shell: Option<String>,
     channel: Channel,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let shell_cmd = shell.unwrap_or_default();
-    let mut handler = LocalShellHandler::new(id.clone(), shell_cmd);
+    let mut handler = LocalShellHandler::new(id.clone(), shell_cmd, app);
     handler.connect(channel)
         .map_err(|e| e.to_string())?;
 

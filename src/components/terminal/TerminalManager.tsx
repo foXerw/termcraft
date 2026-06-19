@@ -1,27 +1,28 @@
-import React from "react";
+import React, { useEffect } from "react";
 import TerminalView from "./TerminalView";
+import DefaultTerminal from "./DefaultTerminal";
 import { useAppStore } from "../../stores/appStore";
-import { Typography } from "antd";
 
 const TerminalManager: React.FC = () => {
   const tabs = useAppStore((s) => s.tabs);
-  const activeTabId = useAppStore((s) => s.activeTabId);
+  const removeTab = useAppStore((s) => s.removeTab);
+
+  // When a connection closes (shell exited via `exit` / disconnected / EOF),
+  // drop its tab so the default-terminal fallback reappears if it was the
+  // last one.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<string>("connection_closed", (ev) => {
+        removeTab(ev.payload);
+      });
+    })();
+    return () => { unlisten?.(); };
+  }, [removeTab]);
 
   if (tabs.length === 0) {
-    return (
-      <div className="terminal-container">
-        <div className="no-connection-message">
-          <div style={{ textAlign: "center" }}>
-            <Typography.Title level={4} style={{ color: "var(--text-secondary)" }}>
-              TermCraft
-            </Typography.Title>
-            <Typography.Text style={{ color: "var(--text-secondary)" }}>
-              点击左侧连接列表快速连接，或新建连接开始使用
-            </Typography.Text>
-          </div>
-        </div>
-      </div>
-    );
+    return <DefaultTerminal />;
   }
 
   return (
