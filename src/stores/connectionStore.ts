@@ -1,20 +1,24 @@
 import { create } from 'zustand';
-import { ConnectionConfig } from '../types/connection';
+import { ConnectionConfig, ReachState } from '../types/connection';
 
 interface ConnectionState {
   configs: ConnectionConfig[];
   selectedConfigId: string | null;
+  /** Per-connection reachability status, keyed by connection id. */
+  statusMap: Record<string, ReachState>;
 
   setConfigs: (configs: ConnectionConfig[]) => void;
   addConfig: (config: ConnectionConfig) => void;
   updateConfig: (config: ConnectionConfig) => void;
   removeConfig: (id: string) => void;
   selectConfig: (id: string | null) => void;
+  setReachStatus: (id: string, state: ReachState) => void;
 }
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
   configs: [],
   selectedConfigId: null,
+  statusMap: {},
 
   setConfigs: (configs) => set({ configs }),
 
@@ -34,4 +38,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     })),
 
   selectConfig: (id) => set({ selectedConfigId: id }),
+
+  setReachStatus: (id, reachState) =>
+    set((state) => ({
+      statusMap: { ...state.statusMap, [id]: reachState },
+    })),
 }));

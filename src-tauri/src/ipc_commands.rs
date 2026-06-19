@@ -13,11 +13,13 @@ use crate::preset::models::*;
 use crate::preset::template;
 use crate::config::models::AppSettings;
 use crate::config::store;
+use crate::reachability::ReachabilityService;
 
 /// Global app state
 pub struct AppState {
     pub connection_manager: ConnectionManager,
     pub preset_engine: Mutex<PresetEngine>,
+    pub reachability: std::sync::Arc<ReachabilityService>,
 }
 
 // === Connection Commands ===
@@ -131,6 +133,18 @@ pub async fn delete_connection_config(id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn load_connection_configs() -> Result<Vec<ConnectionConfig>, String> {
     store::load_connection_configs().map_err(|e| e.to_string())
+}
+
+/// Replace the set of connections the reachability scheduler probes.
+/// Each entry: (id, host, port). Frontend derives these from its config list
+/// (only connections that have a host, i.e. SSH/Telnet).
+#[tauri::command]
+pub async fn set_reachability_targets(
+    targets: Vec<(String, String, u16)>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.reachability.set_targets(targets).await;
+    Ok(())
 }
 
 // === Preset Commands ===

@@ -4,19 +4,31 @@ mod config;
 mod errors;
 mod ipc_commands;
 mod security;
+mod reachability;
 
 use connection::manager::ConnectionManager;
 use ipc_commands::AppState;
 use preset::engine::PresetEngine;
+use reachability::init as init_reachability;
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let reachability = init_reachability();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             connection_manager: ConnectionManager::new(),
             preset_engine: Mutex::new(PresetEngine::new()),
+            reachability: reachability.clone(),
+        })
+        .setup(move |app| {
+            // Spawn the reachability scheduler; it owns an Arc to the service
+            // shared with AppState and uses the app handle to emit events.
+            reachability.clone().spawn(app.handle().clone());
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             // Connection commands
@@ -31,6 +43,8 @@ pub fn run() {
             ipc_commands::save_connection_config,
             ipc_commands::delete_connection_config,
             ipc_commands::load_connection_configs,
+            // Reachability
+            ipc_commands::set_reachability_targets,
             // Preset commands
             ipc_commands::save_preset,
             ipc_commands::delete_preset,

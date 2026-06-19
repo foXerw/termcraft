@@ -14,6 +14,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   const configs = useConnectionStore((s) => s.configs);
   const setConfigs = useConnectionStore((s) => s.setConfigs);
+  const setReachStatus = useConnectionStore((s) => s.setReachStatus);
   const presets = usePresetStore((s) => s.presets);
   const setPresets = usePresetStore((s) => s.setPresets);
   const groups = usePresetStore((s) => s.groups);
@@ -37,6 +38,45 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
     }
     loadData();
   }, []);
+
+  // Subscribe to reachability status pushes from the backend.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<{ id: string; status: string; latency_ms?: number; last_checked?: string }>(
+        "connection_status",
+        (e) => {
+          setReachStatus(e.payload.id, {
+            status: e.payload.status as any,
+            latencyMs: e.payload.latency_ms,
+            lastChecked: e.payload.last_checked,
+          });
+        }
+      );
+    })();
+    return () => { unlisten?.(); };
+  }, [setReachStatus]);
+
+  // Whenever the connection list changes, re-register probe targets.
+  // Only connections with a host (SSH/Telnet) are probed.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const targets = configs
+          .filter((c) => !!c.host)
+          .map((c) => [
+            c.id,
+            c.host,
+            c.port ?? (c.conn_type === "Telnet" ? 23 : 22),
+          ]);
+        await invoke("set_reachability_targets", { targets });
+      } catch (e) {
+        console.error("Failed to sync reachability targets:", e);
+      }
+    })();
+  }, [configs]);
 
   if (collapsed) {
     return <div className="sidebar collapsed" />;

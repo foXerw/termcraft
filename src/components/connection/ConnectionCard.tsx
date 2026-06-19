@@ -1,6 +1,6 @@
 import React from "react";
-import { Typography, Tag, Button, Space, Popconfirm } from "antd";
-import { LinkOutlined, DeleteOutlined, EditOutlined } from "@ant-design/icons";
+import { Typography, Tag, Button, Space, Popconfirm, Tooltip } from "antd";
+import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { ConnectionConfig } from "../../types/connection";
 import { useAppStore } from "../../stores/appStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -14,6 +14,25 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
   const setChannel = useAppStore((s) => s.setChannel);
   const openConnectionForm = useAppStore((s) => s.openConnectionForm);
   const removeConfig = useConnectionStore((s) => s.removeConfig);
+  const status = useConnectionStore((s) => s.statusMap[config.id]);
+
+  // No host (LocalShell) => never probed, show neutral dot.
+  const hasHost = !!config.host;
+  const statusState = hasHost ? status?.status ?? "checking" : "unknown";
+  const dotColor =
+    statusState === "reachable" ? "#52c41a"
+      : statusState === "down" ? "#f5222d"
+      : "#bfbfbf";
+  const dotTip =
+    statusState === "reachable"
+      ? status?.latencyMs != null
+        ? `可达 · ${status.latencyMs}ms`
+        : "可达"
+      : statusState === "down"
+      ? "不可达"
+      : hasHost
+      ? "检测中"
+      : "本地 · 不适用";
 
   // 双击连接 — 自动重连
   const handleDoubleClick = async () => {
@@ -103,8 +122,20 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
       }}
       onDoubleClick={handleDoubleClick}
     >
-      <Space size={4}>
-        <LinkOutlined style={{ color: typeColors[config.conn_type] }} />
+      <Space size={6}>
+        <Tooltip title={dotTip} placement="right">
+          <span
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: dotColor,
+              boxShadow: statusState === "checking" ? "0 0 0 2px rgba(191,191,191,0.25)" : "none",
+              flexShrink: 0,
+            }}
+          />
+        </Tooltip>
         <Typography.Text ellipsis style={{ maxWidth: 140 }}>{config.name}</Typography.Text>
         <Tag color={typeColors[config.conn_type]} style={{ fontSize: 10 }}>{config.conn_type}</Tag>
       </Space>
