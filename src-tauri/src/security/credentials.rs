@@ -5,19 +5,50 @@
 //! credentials are isolated and can be cleaned up independently. The plaintext
 //! password / passphrase never touches the on-disk JSON config — only this
 //! store holds them, and they are encrypted by the OS under the current user.
+//!
+//! # How a secret is addressed
+//!
+//! Each secret is stored via `Entry::new(SERVICE, account)` where:
+//! - `SERVICE`  = `"com.termcraft.app"` (matches the app identifier in
+//!   `tauri.conf.json`, so all TermCraft secrets share one namespace).
+//! - `account`  = `"<conn_id>:<field>"` (the connection UUID plus a field
+//!   suffix, e.g. `<conn_id>:password`). The `field` distinguishes multiple
+//!   secrets belonging to one connection (password vs passphrase).
+//!
+//! `keyring` maps that `(service, account)` pair to the platform store. The
+//! exact on-disk identifier is backend-specific and not something our code
+//! builds itself — but for reference:
+//!
+//! - **Windows**: the credential is a Generic Credential whose target name is
+//!   the concatenation `account.service` — i.e.
+//!   `<conn_id>:<field>.com.termcraft.app`. That is the string that shows up
+//!   in Windows Credential Manager (`control /name Microsoft.CredentialManager`
+//!   → Windows 凭据), and it is also what `cmdkey /list:com.termcraft.app`
+//!   prints. The `service` half is the "application" attribution, the
+//!   `<conn_id>:<field>` half is the account.
+//! - **macOS / Linux**: the same `(service, account)` pair indexes a Keychain
+//!   generic item / a Secret Service entry respectively.
+//!
+//! Because lookups reuse the identical `(SERVICE, account)` pair, a stored
+//! secret is always found back by the same `conn_id` + `field` that wrote it.
 
 use keyring::Entry;
 
 use crate::errors::AppError;
 
 /// Service name shared across all TermCraft secrets. Matches the app
-/// identifier in `tauri.conf.json`.
+/// identifier in `tauri.conf.json`. All keyring entries are namespaced under
+/// it, so deleting TermCraft's entries never touches another app's.
 const SERVICE: &str = "com.termcraft.app";
 
 /// Field suffixes used to namespace a connection's secrets.
 pub const PASSWORD: &str = "password";
 pub const PASSPHRASE: &str = "passphrase";
 
+/// Build the keyring `account` string for one of a connection's secrets.
+///
+/// One entry per `(conn_id, field)`, so a single connection may own several
+/// secrets (e.g. both `password` and `passphrase`).
 fn account(conn_id: &str, field: &str) -> String {
     format!("{conn_id}:{field}")
 }
