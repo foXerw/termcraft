@@ -29,4 +29,4 @@ regex = "1"
 thiserror = "2"
 log = "0.4"
 dirs = "5"
-keyring = "3"
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
