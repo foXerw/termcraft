@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tauri::ipc::Channel;
 
 use crate::connection::ssh::SSHHandler;
 use crate::connection::telnet::TelnetHandler;
 use crate::connection::local::LocalShellHandler;
-use crate::connection::ConnectionInfo;
+use crate::connection::{ConnectionInfo, OutputTap};
 use crate::errors::AppError;
 
 /// Connection type enum for storing different handlers
@@ -120,6 +121,38 @@ impl ConnectionManager {
             ConnectionEntry::Local(h) => {
                 let c = h.lock().await;
                 c.write(data)
+            }
+        }
+    }
+
+    /// Get the output tap of a connection (None if no such connection).
+    async fn tap_of(&self, id: &str) -> Option<OutputTap> {
+        let conns = self.connections.lock().await;
+        let entry = conns.get(id)?;
+        Some(match entry {
+            ConnectionEntry::SSH(h) => h.lock().await.output_tap(),
+            ConnectionEntry::Telnet(h) => h.lock().await.output_tap(),
+            ConnectionEntry::Local(h) => h.lock().await.output_tap(),
+        })
+    }
+
+    /// Subscribe to a connection's output stream. Returns a receiver that yields
+    /// a copy of every byte the connection produces. Replaces any existing
+    /// subscriber. Drop the receiver or call `unsubscribe_output` when done.
+    pub async fn subscribe_output(&self, id: &str) -> Option<UnboundedReceiver<Vec<u8>>> {
+        let tap = self.tap_of(id).await?;
+        let (tx, rx) = unbounded_channel();
+        if let Ok(mut guard) = tap.lock() {
+            *guard = Some(tx);
+        }
+        Some(rx)
+    }
+
+    /// Remove the output subscriber from a connection (e.g. when a preset run ends).
+    pub async fn unsubscribe_output(&self, id: &str) {
+        if let Some(tap) = self.tap_of(id).await {
+            if let Ok(mut guard) = tap.lock() {
+                *guard = None;
             }
         }
     }

@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-use crate::connection::ConnType;
+use crate::connection::{ConnType, OutputTap, new_output_tap, tap_send};
 use crate::errors::AppError;
 
 type WriteHalf = tokio::io::WriteHalf<TcpStream>;
@@ -12,6 +12,7 @@ pub struct TelnetHandler {
     id: String,
     host: String,
     port: u16,
+    output_tap: OutputTap,
     write_half: Option<Arc<Mutex<WriteHalf>>>,
     alive: bool,
     read_task: Option<tokio::task::JoinHandle<()>>,
@@ -23,10 +24,15 @@ impl TelnetHandler {
             id,
             host,
             port,
+            output_tap: new_output_tap(),
             write_half: None,
             alive: false,
             read_task: None,
         }
+    }
+
+    pub fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
     }
 
     /// Connect to Telnet server asynchronously
@@ -46,6 +52,7 @@ impl TelnetHandler {
         self.alive = true;
 
         // Start reading task
+        let tap = self.output_tap.clone();
         let read_task = tokio::spawn(async move {
             let mut buf = [0u8; 4096];
             use tokio::io::AsyncReadExt;
@@ -54,6 +61,7 @@ impl TelnetHandler {
                 match reader.read(&mut buf).await {
                     Ok(0) => break,
                     Ok(n) => {
+                        tap_send(&tap, &buf[..n]);
                         let text = String::from_utf8_lossy(&buf[..n]);
                         let json = serde_json::to_string(&text).unwrap_or_default();
                         let _ = frontend_channel.send(tauri::ipc::InvokeResponseBody::Json(json));

@@ -2,12 +2,13 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, MasterPty, Child};
 
-use crate::connection::ConnType;
+use crate::connection::{ConnType, OutputTap, new_output_tap, tap_send};
 use crate::errors::AppError;
 
 pub struct LocalShellHandler {
     id: String,
     shell: String,
+    output_tap: OutputTap,
     master: Option<Arc<StdMutex<Box<dyn MasterPty + Send>>>>,
     writer: Option<Arc<StdMutex<Box<dyn std::io::Write + Send>>>>,
     child: Option<Box<dyn Child + Send + Sync>>,
@@ -20,12 +21,17 @@ impl LocalShellHandler {
         Self {
             id,
             shell,
+            output_tap: new_output_tap(),
             master: None,
             writer: None,
             child: None,
             alive: false,
             read_task: None,
         }
+    }
+
+    pub fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
     }
 
     /// Start a local shell PTY
@@ -73,6 +79,7 @@ impl LocalShellHandler {
         self.alive = true;
 
         // Start reading task
+        let tap = self.output_tap.clone();
         let read_task = tokio::spawn(async move {
             let reader = {
                 let m = master.lock().unwrap();
@@ -87,6 +94,7 @@ impl LocalShellHandler {
                         match reader.read(&mut buf) {
                             Ok(0) => break,
                             Ok(n) => {
+                                tap_send(&tap, &buf[..n]);
                                 let text = String::from_utf8_lossy(&buf[..n]);
                                 let json = serde_json::to_string(&text).unwrap_or_default();
                                 let _ = frontend_channel.send(tauri::ipc::InvokeResponseBody::Json(json));

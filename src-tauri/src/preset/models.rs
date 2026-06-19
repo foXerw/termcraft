@@ -22,7 +22,28 @@ pub struct CommandItem {
     pub command: String,
     pub delay_ms: u64,
     pub wait_for: Option<WaitCondition>,
+    /// What to do when this command "fails" (write error, or wait_for
+    /// expectation unmet within timeout). Default: Abort when a wait_for is
+    /// set, Continue otherwise (applied at load/exec time).
+    #[serde(default)]
+    pub on_fail: OnFail,
     pub enabled: bool,
+}
+
+/// What to do when a command fails during a preset run.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum OnFail {
+    /// Stop the whole preset (report Failed).
+    Abort,
+    /// Log the failure and continue to the next command.
+    Continue,
+}
+
+impl Default for OnFail {
+    fn default() -> Self {
+        OnFail::Continue
+    }
 }
 
 /// Wait condition — match output before proceeding to next command
@@ -31,6 +52,24 @@ pub struct WaitCondition {
     pub pattern: String,
     pub timeout_ms: u64,
     pub match_type: MatchType,
+    /// Whether finding the pattern means success (Found) or failure (NotFound).
+    /// E.g. `ps` must show a process → Found; an error string must NOT appear → NotFound.
+    #[serde(default)]
+    pub expect: WaitExpect,
+}
+
+/// Whether a match denotes success or failure.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum WaitExpect {
+    Found,
+    NotFound,
+}
+
+impl Default for WaitExpect {
+    fn default() -> Self {
+        WaitExpect::Found
+    }
 }
 
 /// How to match the wait condition pattern
@@ -81,6 +120,13 @@ pub struct PresetExecutionStatus {
     pub total_commands: usize,
     pub current_loop: u32,
     pub message: Option<String>,
+    /// Outcome of the command that just ran (when known). Lets the UI show
+    /// "matched / not matched" per step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_succeeded: Option<bool>,
+    /// Tail of the captured output for the command, for quick debugging.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_snippet: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

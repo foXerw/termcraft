@@ -5,7 +5,7 @@ use russh::*;
 use russh::client::{Handle, Handler, Session};
 use russh_keys::key::PublicKey as SshPublicKey;
 
-use crate::connection::{AuthConfig, ConnType};
+use crate::connection::{AuthConfig, ConnType, OutputTap, new_output_tap, tap_send};
 use crate::errors::AppError;
 use tauri::ipc::InvokeResponseBody;
 
@@ -66,6 +66,7 @@ pub struct SSHHandler {
     port: u16,
     username: String,
     auth: AuthConfig,
+    output_tap: OutputTap,
     session_handle: Option<Handle<SSHClientHandler>>,
     channel: Option<Channel<client::Msg>>,
     alive: bool,
@@ -81,12 +82,17 @@ impl SSHHandler {
             port,
             username,
             auth,
+            output_tap: new_output_tap(),
             session_handle: None,
             channel: None,
             alive: false,
             output_rx: None,
             forward_task: None,
         }
+    }
+
+    pub fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
     }
 
     /// Connect to SSH server asynchronously
@@ -172,8 +178,11 @@ impl SSHHandler {
         frontend_channel: tauri::ipc::Channel,
     ) {
         if let Some(mut output_rx) = self.output_rx.take() {
+            let tap = self.output_tap.clone();
             let task = tokio::spawn(async move {
                 while let Some(data) = output_rx.recv().await {
+                    // Copy raw bytes to any output subscriber (preset engine) first.
+                    tap_send(&tap, &data);
                     // Convert raw bytes to string — terminal data may contain
                     // escape sequences, so we need to handle UTF-8 properly
                     let text = String::from_utf8_lossy(&data);
