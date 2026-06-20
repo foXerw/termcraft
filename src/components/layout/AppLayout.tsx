@@ -15,7 +15,6 @@ const AppLayout: React.FC = () => {
   const editingConfig = useAppStore((s) => s.editingConfig);
   const openConnectionForm = useAppStore((s) => s.openConnectionForm);
   const closeConnectionForm = useAppStore((s) => s.closeConnectionForm);
-  const aboutOpen = useAppStore((s) => s.aboutOpen);
   const openAbout = useAppStore((s) => s.openAbout);
 
   return (
