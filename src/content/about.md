@@ -1,5 +1,3 @@
-# 关于 TermCraft
-
 TermCraft 是一款基于 Tauri v2 的桌面终端客户端，支持 SSH、Telnet 与本地 shell（cmd / bash），界面中文本地化。
 
 ## 主要特性
