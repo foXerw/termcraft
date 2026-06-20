@@ -136,23 +136,28 @@ impl ConnectionManager {
         })
     }
 
-    /// Subscribe to a connection's output stream. Returns a receiver that yields
-    /// a copy of every byte the connection produces. Replaces any existing
-    /// subscriber. Drop the receiver or call `unsubscribe_output` when done.
-    pub async fn subscribe_output(&self, id: &str) -> Option<UnboundedReceiver<Vec<u8>>> {
+    /// Subscribe to a connection's output stream. Returns a `(sub_id, receiver)`
+    /// pair; the receiver yields a copy of every byte the connection produces.
+    /// Multiple subscribers may exist concurrently (preset engine + terminal
+    /// logger). Remove a specific subscriber with `unsubscribe_output(id, sub_id)`.
+    pub async fn subscribe_output(&self, id: &str) -> Option<(u64, UnboundedReceiver<Vec<u8>>)> {
         let tap = self.tap_of(id).await?;
         let (tx, rx) = unbounded_channel();
-        if let Ok(mut guard) = tap.lock() {
-            *guard = Some(tx);
-        }
-        Some(rx)
+        let sub_id = {
+            let mut guard = tap.lock().ok()?;
+            let id = guard.next_sub_id;
+            guard.next_sub_id += 1;
+            guard.senders.push((id, tx));
+            id
+        };
+        Some((sub_id, rx))
     }
 
-    /// Remove the output subscriber from a connection (e.g. when a preset run ends).
-    pub async fn unsubscribe_output(&self, id: &str) {
+    /// Remove a specific output subscriber (by `sub_id`) from a connection.
+    pub async fn unsubscribe_output(&self, id: &str, sub_id: u64) {
         if let Some(tap) = self.tap_of(id).await {
             if let Ok(mut guard) = tap.lock() {
-                *guard = None;
+                guard.senders.retain(|(sid, _)| *sid != sub_id);
             }
         }
     }

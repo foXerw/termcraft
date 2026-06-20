@@ -8,24 +8,32 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 
-/// Output tap: an optional subscriber that receives a copy of every byte the
-/// connection produces, in addition to the normal frontend (xterm) channel.
-/// Used by the preset engine to capture per-command output for matching.
-/// `None` means "no subscriber" — bytes only go to the frontend (the default).
-pub type OutputTap = Arc<StdMutex<Option<UnboundedSender<Vec<u8>>>>>;
-
-/// Create a fresh, empty tap (no subscriber).
-pub fn new_output_tap() -> OutputTap {
-    Arc::new(StdMutex::new(None))
+/// Output tap: a set of subscribers, each receiving a copy of every byte the
+/// connection produces (in addition to the normal frontend/xterm channel).
+/// Multi-subscriber so the preset engine and terminal logging can both listen
+/// without one clobbering the other. Each subscriber is identified by a
+/// monotonically-increasing `sub_id` returned from `subscribe_output` (in the
+/// manager) and removed via `unsubscribe_output`.
+pub struct OutputTapInner {
+    pub senders: Vec<(u64, UnboundedSender<Vec<u8>>)>,
+    pub next_sub_id: u64,
 }
 
-/// Forward a copy of `bytes` to the tap's subscriber, if any. Never blocks:
-/// unbounded channel; errors (subscriber dropped) are ignored.
+pub type OutputTap = Arc<StdMutex<OutputTapInner>>;
+
+/// Create a fresh, empty tap (no subscribers).
+pub fn new_output_tap() -> OutputTap {
+    Arc::new(StdMutex::new(OutputTapInner {
+        senders: Vec::new(),
+        next_sub_id: 0,
+    }))
+}
+
+/// Forward a copy of `bytes` to every tap subscriber. Never blocks: unbounded
+/// channels; subscribers whose receiver has been dropped are pruned.
 pub fn tap_send(tap: &OutputTap, bytes: &[u8]) {
-    if let Ok(guard) = tap.lock() {
-        if let Some(sender) = guard.as_ref() {
-            let _ = sender.send(bytes.to_vec());
-        }
+    if let Ok(mut guard) = tap.lock() {
+        guard.senders.retain(|(_, sender)| sender.send(bytes.to_vec()).is_ok());
     }
 }
 

@@ -82,8 +82,8 @@ impl PresetEngine {
 
         // Subscribe to the connection's output so we can capture per-command
         // output for matching. Unsubscribed in all exit paths.
-        let rx = match manager.subscribe_output(&connection_id).await {
-            Some(r) => r,
+        let (sub_id, rx) = match manager.subscribe_output(&connection_id).await {
+            Some(pair) => pair,
             None => {
                 self.send_status(
                     status_channel, &exec_id, &preset_id, ExecutionState::Failed, 0, total, 0,
@@ -100,7 +100,7 @@ impl PresetEngine {
             .await;
 
         // Always release the output subscriber.
-        manager.unsubscribe_output(&connection_id).await;
+        manager.unsubscribe_output(&connection_id, sub_id).await;
         self.cancelled.lock().await.remove(&exec_id);
         result
     }
