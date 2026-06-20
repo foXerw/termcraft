@@ -14,6 +14,9 @@ import { useAppStore } from "../../stores/appStore";
  */
 const DefaultTerminal: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Live FitAddon reference, kept on a ref so the resize effect (separate from
+  // the spawn effect) can re-fit on window maximize/restore.
+  const fitRef = useRef<FitAddon | null>(null);
   // Bump to spawn a new local-shell session (used on mount + after exit).
   const [session, setSession] = useState(0);
   const idRef = useRef<string | null>(null);
@@ -28,6 +31,12 @@ const DefaultTerminal: React.FC = () => {
 
     (async () => {
       const { invoke, Channel } = await import("@tauri-apps/api/core");
+      // StrictMode double-invokes this effect in dev: the first run's cleanup
+      // fires synchronously before this async body progresses, so it can't
+      // dispose anything yet. Bail out if we've been superseded — otherwise we'd
+      // open a second xterm into the same container and spawn a second shell.
+      if (disposed) return;
+
       const id = "default-" + crypto.randomUUID();
       idRef.current = id;
 
@@ -55,8 +64,19 @@ const DefaultTerminal: React.FC = () => {
       } catch {
         /* canvas fallback */
       }
+
+      // Second StrictMode checkpoint: cleanup may have run while we awaited
+      // the webgl setup. If so, tear down what we just built and abort before
+      // binding/spawning.
+      if (disposed) {
+        terminal.dispose();
+        useAppStore.getState().removeChannel(id);
+        return;
+      }
+
       term = terminal;
       fit = fitAddon;
+      fitRef.current = fitAddon;
 
       channel.onmessage = (msg: any) => {
         const text = typeof msg === "string" ? msg : String(msg);
@@ -79,6 +99,7 @@ const DefaultTerminal: React.FC = () => {
 
       // If this shell exits (user typed `exit`), respawn a fresh one.
       const { listen } = await import("@tauri-apps/api/event");
+      if (disposed) return;
       unlistenClose = await listen<string>("connection_closed", (ev) => {
         if (disposed) return;
         if (ev.payload === id) {
@@ -98,16 +119,16 @@ const DefaultTerminal: React.FC = () => {
         useAppStore.getState().removeChannel(id);
       }
       term?.dispose();
+      fitRef.current = null;
     };
     // Re-run when the session counter changes (respawn after exit).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // Keep fit correct on container resize.
+  // Keep fit correct on container resize (maximize/restore/sidebar toggle).
   useEffect(() => {
     const onResize = () => {
-      // FitAddon reference not retained across this effect; rely on xterm's
-      // own resize handling. (Best-effort.)
+      fitRef.current?.fit();
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);

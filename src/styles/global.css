@@ -135,7 +135,10 @@ html, body, #root {
 .terminal-container {
   flex: 1;
   overflow: hidden;
-  background-color: #000;
+  /* Match xterm's default dark background so the sub-row remainder left by
+     FitAddon (floor of container height / cell height) blends in instead of
+     showing as a black strip. */
+  background-color: #1e1e1e;
 }
 
 .terminal-wrapper {
