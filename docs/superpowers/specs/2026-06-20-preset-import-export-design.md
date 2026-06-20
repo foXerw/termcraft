@@ -29,17 +29,16 @@
 
 ```json
 {
-  "format": "termcraft-presets",
-  "version": 1,
+  "version": "1.0",
   "exported_at": "2026-06-20T12:00:00Z",
   "presets": [ /* 完整 Preset 对象 */ ],
   "groups": [ /* PresetGroup[] */ ]
 }
 ```
 
-- `format` 固定字符串 `"termcraft-presets"`，导入时校验。
-- `version` 固定整数 `1`，导入时校验。为未来 schema 变更预留迁移入口。
-- `exported_at` ISO8601 时间戳，仅记录用，导入时忽略。
+- 复用现有 `template::PresetTemplate` 类型，**不新增类型**。
+- `version` 固定字符串 `"1.0"`，导入时校验 `== "1.0"`，不符返回中文错误。
+- `exported_at` ISO8601（`chrono::Utc::now().to_rfc3339()`），仅记录用，导入时忽略。
 - `presets`：完整 `Preset[]`。
   - 单预设导出：长度为 1。
   - 全量导出：含全部预设。
@@ -49,55 +48,68 @@
 - 文件后缀 `.tc-presets.json`，对话框过滤器默认匹配 `*.tc-presets.json` 与 `*.json`。
 - 序列化用 `serde_json::to_string_pretty`（人类可读，便于版本管理/分享）。
 
+> **与现有代码的关系（2026-06-20 修订）**：后端 `src-tauri/src/preset/template.rs` 已存在 `PresetTemplate` 类型与 `export_template`/`import_template` 逻辑，但前端从未接线（`TemplateManager.tsx` 为空占位）。本设计**复用**该类型与导出组装逻辑，不新建并行类型/命令。冲突模型从现有单一 `overwrite: bool` 升级为前端逐项决策，因此把导入拆成「解析（只读返回）」+「前端按决策 apply」两步。旧的无用命令 `export_template`/`import_template` IPC 及 `template::import_template` 函数随之移除。
+
 ## 后端（Rust）
 
 ### 新增依赖与权限
 
 - `src-tauri/Cargo.toml` 增加 `tauri-plugin-dialog = "2"`。
 - `src-tauri/src/lib.rs` 的 `tauri::Builder` 注册 `tauri_plugin_dialog::init()`。
-- capabilities（`src-tauri/capabilities/*.json`）增加 `dialog:default` 权限（允许 `open` / `save` 对话框）。不授予 `fs` 权限——文件读写走自定义命令。
+- capabilities（`src-tauri/capabilities/default.json`）增加 `dialog:default` 权限（允许 `open` / `save` 对话框）。不授予 `fs` 权限——文件读写走自定义命令。
 
-### 新增 IPC 命令（`src-tauri/src/ipc_commands.rs`）
+### 复用 `template` 模块
 
-**`export_presets(path: String, kind: String, preset_id: Option<String>) -> Result<(), String>`**
-
-- `kind` 取值 `"all"` 或 `"single"`。
-- `all`：`store::load_presets()` + `store::load_preset_groups()` 组装完整 `ExportFile`。
-- `single`：取 `preset_id` 对应的预设；若 `group_id` 存在则取该分组。组装 `ExportFile`。
-  - `preset_id` 找不到预设 → 返回错误。
-- 用现有 `atomic_write`（或等价的 pretty 写入）写入 `path`。
-- 返回 `()` 成功，失败返回中文错误字符串。
-
-**`import_presets_file(path: String) -> Result<ExportFile, String>`**
-
-- 读文件 → `serde_json::from_str` 反序列化为 `ExportFile`。
-- 校验 `format == "termcraft-presets"` 且 `version == 1`，不符返回中文错误。
-- **只读不改**：不写任何文件，把解析后的 `ExportFile` 返回前端。
-- 应用阶段复用现有 `save_preset` / `save_preset_group`，不新增 apply 命令（`save_preset` 已是 upsert by id）。
-
-### 新增类型（`src-tauri/src/preset/models.rs` 或 `store.rs`）
+`src-tauri/src/preset/template.rs` 已有 `PresetTemplate` 类型与 `export_template(presets, groups) -> Result<String>`（组装 + pretty 序列化）。复用它，并新增一个只解析不 apply 的函数：
 
 ```rust
-#[derive(Serialize, Deserialize)]
-pub struct ExportFile {
-    pub format: String,
-    pub version: u32,
-    pub exported_at: String,
-    pub presets: Vec<Preset>,
-    pub groups: Vec<PresetGroup>,
+/// 解析模板字符串并校验版本，不写任何文件、不 apply。
+pub fn parse_template(json: &str) -> Result<PresetTemplate, AppError> {
+    let template: PresetTemplate = serde_json::from_str(json)
+        .map_err(|e| AppError::Preset(format!("无法解析预设文件: {}", e)))?;
+    if template.version != "1.0" {
+        return Err(AppError::Preset(format!("不支持的预设文件版本: {}", template.version)));
+    }
+    Ok(template)
 }
 ```
 
-`exported_at` 由后端生成（调用时取当前时间，因为脚本环境无 `Date::now` 限制仅适用于 workflow 脚本，Rust 运行时可用 `chrono` 或 `SystemTime`）。
+移除现有 `template::import_template`（单一 overwrite 语义被前端逐项决策取代）。
+
+### 新增 IPC 命令（`src-tauri/src/ipc_commands.rs`）
+
+**`export_presets_to_file(path: String, preset_ids: Vec<String>) -> Result<(), String>`**
+
+- `preset_ids` 为空时视为「全量」：导出全部预设 + 全部分组。
+- 非空时：取这些 id 的预设 + 各自所属分组。
+- `store::load_presets()` + `store::load_preset_groups()` 取数据，按 id 过滤，调 `template::export_template(selected_presets, selected_groups)` 拿 JSON 字符串。
+- 用 `fs::write`（或 `store` 内 `atomic_write` 的等价公开函数）写入 `path`。
+- 指定 id 找不到预设 → 返回中文错误。
+
+**`parse_template_file(path: String) -> Result<PresetTemplate, String>`**
+
+- 读文件 → `template::parse_template(content)`（解析 + 版本校验）。
+- **只读不改**：返回 `PresetTemplate` 给前端，前端弹冲突 Modal 后用现有 `save_preset` / `save_preset_group` apply。
+
+### 移除的旧命令
+
+- `ipc_commands::export_template`（IPC，未被前端使用）。
+- `ipc_commands::import_template`（IPC，被 `parse_template_file` + 前端 apply 取代）。
+- `template::import_template`（函数）。
+- `lib.rs` 的 `invoke_handler` 注册中删除 `export_template` / `import_template` 两行。
+
+### 不新增
+
+- 不新建 `ExportFile` 类型（复用 `PresetTemplate`）。
+- 不新增 apply 命令（复用现有 `save_preset` upsert by id + `save_preset_group`）。
 
 ## 前端
 
 ### 类型（`src/types/preset.ts`）
 
 ```ts
-export interface ExportFile {
-  format: string;
-  version: number;
+export interface PresetTemplate {
+  version: string; // "1.0"
   exported_at: string;
   presets: Preset[];
   groups: PresetGroup[];
@@ -116,8 +128,8 @@ export interface ExportFile {
 ### 导出流程
 
 1. `save({ filters: [{ name: 'TermCraft 预设', extensions: ['tc-presets.json','json'] }], defaultPath: 'presets.tc-presets.json' })` 获取路径。用户取消则中止。
-2. 全量：`invoke("export_presets", { path, kind: "all", presetId: null })`。
-   单个：`invoke("export_presets", { path, kind: "single", presetId: p.id })`。
+2. 全量：`invoke("export_presets_to_file", { path, presetIds: [] })`（空数组=全部）。
+   单个：`invoke("export_presets_to_file", { path, presetIds: [p.id] })`。
 3. 成功 `message.success` 提示导出路径。
 
 全量导出前拦截：若 `presets.length === 0`，`message.warning("没有可导出的预设")` 并中止，不生成空文件。
@@ -125,12 +137,12 @@ export interface ExportFile {
 ### 导入流程
 
 1. `open({ filters: [{ name: 'TermCraft 预设', extensions: ['tc-presets.json','json'] }], multiple: false })` 获取路径。取消则中止。
-2. `invoke("import_presets_file", { path })` → `ExportFile`。失败 `message.error` 提示中文错误，中止。
+2. `invoke("parse_template_file", { path })` → `PresetTemplate`。失败 `message.error` 提示中文错误，中止。
 3. 打开**冲突解决 Modal**。
 
 ### 冲突解决 Modal
 
-新建组件 `src/components/preset/PresetImportDialog.tsx`，props：`open`, `payload: ExportFile | null`, `onClose`。
+新建组件 `src/components/preset/PresetImportDialog.tsx`，props：`open`, `payload: PresetTemplate | null`, `onClose`。
 
 **分组解析（自动，不弹窗）**：
 - 对每个导入预设的 `group_id`，从 `payload.groups` 取分组定义。
@@ -167,13 +179,12 @@ export interface ExportFile {
 
 | 文件 | 改动 |
 |------|------|
-| `src-tauri/Cargo.toml` | 加 `tauri-plugin-dialog` |
-| `src-tauri/src/lib.rs` | 注册 dialog 插件 |
-| `src-tauri/capabilities/*.json` | 加 `dialog:default` |
-| `src-tauri/src/preset/models.rs` | `ExportFile` 类型 |
-| `src-tauri/src/ipc_commands.rs` | `export_presets`、`import_presets_file` 命令 + 注册到 `invoke_handler` |
-| `src-tauri/src/config/store.rs` | 可能加导出辅助（pretty 写入），或复用 `atomic_write` |
-| `src/types/preset.ts` | `ExportFile` 类型 |
+| `src-tauri/Cargo.toml` | 加 `tauri-plugin-dialog = "2"` |
+| `src-tauri/src/lib.rs` | 注册 `tauri_plugin_dialog::init()`；从 `invoke_handler` 移除 `export_template`/`import_template` |
+| `src-tauri/capabilities/default.json` | 加 `dialog:default` |
+| `src-tauri/src/preset/template.rs` | 新增 `parse_template`；移除 `import_template`（复用 `PresetTemplate`、`export_template`） |
+| `src-tauri/src/ipc_commands.rs` | 新增 `export_presets_to_file`、`parse_template_file`；移除 `export_template`/`import_template` |
+| `src/types/preset.ts` | `PresetTemplate` 类型 |
 | `src/components/preset/PresetPanel.tsx` | 工具栏导入/导出按钮 + 行内导出按钮 |
 | `src/components/preset/PresetImportDialog.tsx` | 新建冲突解决 Modal |
 | `package.json` | 加 `@tauri-apps/plugin-dialog` |
@@ -181,12 +192,13 @@ export interface ExportFile {
 ## 测试要点
 
 手动验证（项目无测试基建）：
-1. 全量导出 → 文件内容含全部预设+分组，格式/version 字段正确。
+1. 全量导出 → 文件内容含全部预设+分组，`version:"1.0"` 字段正确。
 2. 单预设导出 → 文件只含该预设+其所属分组。
 3. 全量导出空库 → 拦截提示，无文件生成。
 4. 导入到空库 → 全部新增，分组按名创建。
 5. 导入到有同名分组的目标 → 分组映射到现有 id，不重复创建。
 6. 导入 ID 冲突 → 三选项分别生效（跳过/覆盖/新增副本）。
-7. 导入损坏/错误格式文件 → 报错不进 Modal。
+7. 导入损坏/错误版本文件 → 报错不进 Modal。
 8. 导入预设 group_id 悬空 → 归入未分组。
 9. 导入预设枚举字段损坏 → 该行灰显跳过，其他正常导入。
+10. 旧 `export_template`/`import_template` IPC 已移除且编译通过（无残留引用）。
