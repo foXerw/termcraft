@@ -20,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             connection_manager: ConnectionManager::new(),
             preset_engine: Mutex::new(PresetEngine::new()),
@@ -40,6 +41,9 @@ pub fn run() {
             ipc_commands::write_to_connection,
             ipc_commands::resize_connection,
             ipc_commands::list_connections,
+            // Terminal logging
+            ipc_commands::start_terminal_logging,
+            ipc_commands::stop_terminal_logging,
             // Connection config persistence
             ipc_commands::save_connection_config,
             ipc_commands::delete_connection_config,

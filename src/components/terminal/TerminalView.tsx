@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { message } from "antd";
 import { useAppStore } from "../../stores/appStore";
 
 interface TerminalViewProps {
@@ -16,6 +18,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ connectionId, tabId }) => {
   const settings = useAppStore((s) => s.settings);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const isActive = activeTabId === tabId;
+  const logPath = useAppStore((s) => s.logPaths.get(connectionId) ?? null);
+  const clearLogPath = useAppStore((s) => s.clearLogPath);
 
   // Initialize xterm.js
   useEffect(() => {
@@ -142,16 +146,76 @@ const TerminalView: React.FC<TerminalViewProps> = ({ connectionId, tabId }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, [isActive]);
 
+  // Stop logging when this terminal view unmounts (tab closed via × or
+  // connection_closed). Idempotent on the backend.
+  useEffect(() => {
+    return () => {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke("stop_terminal_logging", { id: connectionId }).catch(() => {});
+      });
+      clearLogPath(connectionId);
+    };
+  }, [connectionId, clearLogPath]);
+
+  // Re-fit when the log status bar appears/disappears (terminal height changes).
+  useEffect(() => {
+    if (isActive && fitAddonRef.current) {
+      const t = setTimeout(() => fitAddonRef.current?.fit(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [logPath, isActive]);
+
+  const openLog = async () => {
+    if (!logPath) return;
+    try {
+      await openPath(logPath);
+    } catch (e) {
+      message.error(`打开日志失败: ${e}`);
+    }
+  };
+
   return (
     <div
-      className="terminal-wrapper"
-      ref={terminalRef}
       style={{
-        display: isActive ? "block" : "none",
+        display: "flex",
+        flexDirection: "column",
         width: "100%",
-        height: "100%",
+        height: isActive ? "100%" : 0,
+        overflow: "hidden",
       }}
-    />
+    >
+      <div
+        className="terminal-wrapper"
+        ref={terminalRef}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          padding: 4,
+          display: isActive ? "block" : "none",
+        }}
+      />
+      {logPath && (
+        <div
+          onClick={openLog}
+          title="点击用默认应用打开日志文件"
+          style={{
+            padding: "2px 8px",
+            fontSize: 11,
+            color: "var(--text-secondary)",
+            background: "var(--bg-secondary)",
+            borderTop: "1px solid var(--border-color)",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            flexShrink: 0,
+            textAlign: "left",
+          }}
+        >
+          📄 {logPath}
+        </div>
+      )}
+    </div>
   );
 };
 

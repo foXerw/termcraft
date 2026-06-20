@@ -6,6 +6,7 @@
     "core:default",
     "shell:allow-open",
     "dialog:default",
+    "opener:default",
     {
       "identifier": "shell:allow-execute",
       "allow": [

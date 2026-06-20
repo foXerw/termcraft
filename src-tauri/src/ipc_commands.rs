@@ -99,7 +99,10 @@ pub async fn write_to_connection(
 ) -> Result<(), String> {
     state.connection_manager.write_to(&id, &data)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Forward the user's input to the active logger (no-op if not logging).
+    state.connection_manager.log_input(&id, data.as_bytes()).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -112,6 +115,25 @@ pub async fn resize_connection(
     state.connection_manager.resize(&id, cols, rows)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn start_terminal_logging(
+    id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .connection_manager
+        .start_logging(&id, path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn stop_terminal_logging(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.connection_manager.stop_logging(&id).await;
+    Ok(())
 }
 
 #[tauri::command]
