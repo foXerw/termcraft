@@ -188,3 +188,62 @@ html, body, #root {
   display: block;
   width: 100%;
 }
+
+.about-markdown h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.about-markdown h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.about-markdown h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+
+.about-markdown p {
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.about-markdown ul {
+  color: var(--text-primary);
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+.about-markdown li {
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.about-markdown code {
+  background-color: var(--bg-tertiary);
+  color: var(--warning-color);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.about-markdown a {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+.about-markdown a:hover {
+  text-decoration: underline;
+}
+
