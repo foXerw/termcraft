@@ -41,6 +41,9 @@ pub fn run() {
             ipc_commands::write_to_connection,
             ipc_commands::resize_connection,
             ipc_commands::list_connections,
+            // Terminal logging
+            ipc_commands::start_terminal_logging,
+            ipc_commands::stop_terminal_logging,
             // Connection config persistence
             ipc_commands::save_connection_config,
             ipc_commands::delete_connection_config,
