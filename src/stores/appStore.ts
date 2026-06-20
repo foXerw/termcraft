@@ -20,6 +20,9 @@ interface AppState {
   // When set, the connection form opens in edit mode pre-filled with this config
   editingConfig: ConnectionConfig | null;
 
+  // About dialog
+  aboutOpen: boolean;
+
   // Tauri IPC Channels for each connection (connectionId -> Channel)
   channels: Map<string, any>;
 
@@ -36,6 +39,8 @@ interface AppState {
   toggleSidebar: () => void;
   openConnectionForm: (config?: ConnectionConfig) => void;
   closeConnectionForm: () => void;
+  openAbout: () => void;
+  closeAbout: () => void;
   setChannel: (connectionId: string, channel: any) => void;
   removeChannel: (connectionId: string) => void;
   setLogPath: (connId: string, path: string) => void;
@@ -60,6 +65,7 @@ export const useAppStore = create<AppState>((set) => ({
   sidebarCollapsed: false,
   connectionFormOpen: false,
   editingConfig: null,
+  aboutOpen: false,
   channels: new Map(),
   logPaths: new Map(),
 
@@ -101,6 +107,10 @@ export const useAppStore = create<AppState>((set) => ({
     set({ connectionFormOpen: true, editingConfig: config ?? null }),
   closeConnectionForm: () =>
     set({ connectionFormOpen: false, editingConfig: null }),
+
+  openAbout: () => set({ aboutOpen: true }),
+
+  closeAbout: () => set({ aboutOpen: false }),
 
   setChannel: (connectionId, channel) =>
     set((state) => {
