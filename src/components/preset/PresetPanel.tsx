@@ -184,11 +184,12 @@ const PresetPanel: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ width: "100%", marginBottom: 8 }}>
-        <Button type="dashed" icon={<PlusOutlined />} size="small" block
-          onClick={() => { setSelectedPreset(null); setEditorOpen(true); }}>
-          新建预设
-        </Button>
+      <Button type="dashed" icon={<PlusOutlined />} size="small" block
+        style={{ marginBottom: 8 }}
+        onClick={() => { setSelectedPreset(null); setEditorOpen(true); }}>
+        新建预设
+      </Button>
+      <Space wrap style={{ width: "100%", marginBottom: 8 }}>
         <Button type="dashed" icon={<PlusOutlined />} size="small"
           onClick={handleCreateGroup}>
           新建分组
