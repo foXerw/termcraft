@@ -200,7 +200,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ connectionId, tabId }) => {
           title="点击用默认应用打开日志文件"
           style={{
             padding: "2px 8px",
-            fontSize: 11,
+            fontSize: 12,
             color: "var(--text-secondary)",
             background: "var(--bg-secondary)",
             borderTop: "1px solid var(--border-color)",
