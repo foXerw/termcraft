@@ -19,6 +19,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             connection_manager: ConnectionManager::new(),
             preset_engine: Mutex::new(PresetEngine::new()),
@@ -61,9 +62,9 @@ pub fn run() {
             ipc_commands::delete_schedule,
             ipc_commands::load_schedules,
             ipc_commands::toggle_schedule,
-            // Template commands
-            ipc_commands::export_template,
-            ipc_commands::import_template,
+            // Preset import/export
+            ipc_commands::export_presets_to_file,
+            ipc_commands::parse_template_file,
             // Settings commands
             ipc_commands::load_settings,
             ipc_commands::save_settings,

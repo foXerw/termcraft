@@ -30,3 +30,4 @@ thiserror = "2"
 log = "0.4"
 dirs = "5"
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+tauri-plugin-dialog = "2"

@@ -263,41 +263,45 @@ pub async fn toggle_schedule(id: String, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-// === Template Commands ===
+// === Preset Import/Export ===
 
 #[tauri::command]
-pub async fn export_template(preset_ids: Vec<String>) -> Result<String, String> {
+pub async fn export_presets_to_file(path: String, preset_ids: Vec<String>) -> Result<(), String> {
     let presets = store::load_presets().map_err(|e| e.to_string())?;
-    let selected: Vec<Preset> = presets.iter()
-        .filter(|p| preset_ids.contains(&p.id))
-        .cloned()
-        .collect();
     let groups = store::load_preset_groups().map_err(|e| e.to_string())?;
-    let group_ids: Vec<String> = selected.iter()
+
+    // preset_ids 为空 => 导出全部
+    let selected_presets: Vec<Preset> = if preset_ids.is_empty() {
+        presets
+    } else {
+        presets.iter().filter(|p| preset_ids.contains(&p.id)).cloned().collect()
+    };
+    if !preset_ids.is_empty() && selected_presets.len() != preset_ids.len() {
+        return Err("部分预设未找到".to_string());
+    }
+
+    // 带上所选预设各自所属的分组
+    let group_ids: Vec<String> = selected_presets
+        .iter()
         .filter_map(|p| p.group_id.clone())
         .collect();
-    let selected_groups: Vec<PresetGroup> = groups.iter()
+    let selected_groups: Vec<PresetGroup> = groups
+        .iter()
         .filter(|g| group_ids.contains(&g.id))
         .cloned()
         .collect();
-    template::export_template(selected, selected_groups).map_err(|e| e.to_string())
+
+    let json = template::export_template(selected_presets, selected_groups)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("写入文件失败: {}", e))?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn import_template(json: String, overwrite: bool) -> Result<Vec<String>, String> {
-    let existing_presets = store::load_presets().map_err(|e| e.to_string())?;
-    let existing_groups = store::load_preset_groups().map_err(|e| e.to_string())?;
-    let (new_presets, new_groups) = template::import_template(&json, &existing_presets, &existing_groups, overwrite)
-        .map_err(|e| e.to_string())?;
-
-    for p in &new_presets {
-        store::save_preset(p).map_err(|e| e.to_string())?;
-    }
-    for g in &new_groups {
-        store::save_preset_group(g).map_err(|e| e.to_string())?;
-    }
-
-    Ok(new_presets.iter().map(|p| p.id.clone()).collect())
+pub async fn parse_template_file(path: String) -> Result<template::ParsedTemplate, String> {
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取文件失败: {}", e))?;
+    template::parse_template(&content).map_err(|e| e.to_string())
 }
 
 // === Settings Commands ===

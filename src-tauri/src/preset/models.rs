@@ -8,7 +8,9 @@ pub struct Preset {
     pub name: String,
     pub group_id: Option<String>,
     pub description: Option<String>,
+    #[serde(default)]
     pub commands: Vec<CommandItem>,
+    #[serde(default)]
     pub variables: Vec<Variable>,
     pub execution_mode: ExecutionMode,
     pub created_at: String,
