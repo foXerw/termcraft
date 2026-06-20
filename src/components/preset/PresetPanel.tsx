@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { Button, Tree, Space, Empty, Typography, Popconfirm, Tag, Modal, Input } from "antd";
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from "@ant-design/icons";
+import { Button, Tree, Space, Empty, Typography, Popconfirm, Tag, Modal, Input, message } from "antd";
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, ImportOutlined } from "@ant-design/icons";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import PresetEditor from "./PresetEditor";
 import PresetRunner from "./PresetRunner";
+import PresetImportDialog from "./PresetImportDialog";
 import { usePresetStore } from "../../stores/presetStore";
 import { useAppStore } from "../../stores/appStore";
-import { Preset, PresetGroup } from "../../types/preset";
+import { Preset, PresetGroup, PresetTemplate } from "../../types/preset";
 
 const PresetPanel: React.FC = () => {
   const presets = usePresetStore((s) => s.presets);
@@ -18,6 +21,40 @@ const PresetPanel: React.FC = () => {
   // null for creation. Using an in-app Modal avoids the browser prompt, whose
   // title bar can't be styled (it shows the page origin like localhost:1420).
   const [groupModal, setGroupModal] = useState<{ rename: PresetGroup | null; value: string } | null>(null);
+  const [importPayload, setImportPayload] = useState<PresetTemplate | null>(null);
+
+  const handleExport = async (presetIds: string[]) => {
+    // presetIds 空 = 全量
+    if (presetIds.length === 0 && presets.length === 0) {
+      message.warning("没有可导出的预设");
+      return;
+    }
+    const path = await save({
+      filters: [{ name: "TermCraft 预设", extensions: ["tc-presets.json", "json"] }],
+      defaultPath: "presets.tc-presets.json",
+    });
+    if (!path) return;
+    try {
+      await invoke("export_presets_to_file", { path, presetIds });
+      message.success(`已导出到 ${path}`);
+    } catch (e) {
+      message.error(`导出失败: ${e}`);
+    }
+  };
+
+  const handleImport = async () => {
+    const path = await open({
+      filters: [{ name: "TermCraft 预设", extensions: ["tc-presets.json", "json"] }],
+      multiple: false,
+    });
+    if (!path) return;
+    try {
+      const payload = await invoke<PresetTemplate>("parse_template_file", { path });
+      setImportPayload(payload);
+    } catch (e) {
+      message.error(`导入失败: ${e}`);
+    }
+  };
   // Expanded tree keys. New groups auto-expand; manual collapse/expand is preserved.
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   useEffect(() => {
@@ -50,6 +87,8 @@ const PresetPanel: React.FC = () => {
       <Popconfirm title="确认删除此预设?" onConfirm={() => handleDeletePreset(p.id)}>
         <Button type="text" icon={<DeleteOutlined />} size="small" danger style={{ opacity: 0.5, flexShrink: 0 }} />
       </Popconfirm>
+      <Button type="text" icon={<ExportOutlined />} size="small" style={{ opacity: 0.5, flexShrink: 0 }}
+        onClick={() => handleExport([p.id])} />
     </div>
   );
 
@@ -154,6 +193,14 @@ const PresetPanel: React.FC = () => {
           onClick={handleCreateGroup}>
           新建分组
         </Button>
+        <Button type="dashed" icon={<ImportOutlined />} size="small"
+          onClick={handleImport}>
+          导入
+        </Button>
+        <Button type="dashed" icon={<ExportOutlined />} size="small"
+          onClick={() => handleExport([])}>
+          导出全部
+        </Button>
       </Space>
 
       {presets.length === 0 && groups.length === 0 ? (
@@ -199,6 +246,12 @@ const PresetPanel: React.FC = () => {
           onPressEnter={submitGroupModal}
         />
       </Modal>
+
+      <PresetImportDialog
+        open={!!importPayload}
+        payload={importPayload}
+        onClose={() => setImportPayload(null)}
+      />
     </div>
   );
 };
