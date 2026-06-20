@@ -7,7 +7,10 @@
     "shell:allow-open",
     "dialog:default",
     "opener:default",
-    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }]
+    },
     {
       "identifier": "shell:allow-execute",
       "allow": [
