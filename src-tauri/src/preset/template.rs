@@ -23,27 +23,14 @@ pub fn export_template(presets: Vec<Preset>, groups: Vec<PresetGroup>) -> Result
         .map_err(|e| AppError::Preset(format!("Failed to export template: {}", e)))
 }
 
-/// Import presets from a JSON template string
-pub fn import_template(json: &str, existing_presets: &[Preset], existing_groups: &[PresetGroup], overwrite: bool) -> Result<(Vec<Preset>, Vec<PresetGroup>), AppError> {
+/// 解析模板字符串并校验版本，不写任何文件、不 apply。
+/// 由前端拿到返回的 PresetTemplate 后弹冲突解决 Modal，再用
+/// save_preset / save_preset_group 逐项应用。
+pub fn parse_template(json: &str) -> Result<PresetTemplate, AppError> {
     let template: PresetTemplate = serde_json::from_str(json)
-        .map_err(|e| AppError::Preset(format!("Failed to parse template: {}", e)))?;
-
-    // Version check
+        .map_err(|e| AppError::Preset(format!("无法解析预设文件: {}", e)))?;
     if template.version != "1.0" {
-        return Err(AppError::Preset(format!("Unsupported template version: {}", template.version)));
+        return Err(AppError::Preset(format!("不支持的预设文件版本: {}", template.version)));
     }
-
-    let mut new_presets = template.presets;
-    let mut new_groups = template.groups;
-
-    if !overwrite {
-        // Filter out presets/groups that already exist by ID
-        let existing_ids: Vec<String> = existing_presets.iter().map(|p| p.id.clone()).collect();
-        let existing_group_ids: Vec<String> = existing_groups.iter().map(|g| g.id.clone()).collect();
-
-        new_presets.retain(|p| !existing_ids.contains(&p.id));
-        new_groups.retain(|g| !existing_group_ids.contains(&g.id));
-    }
-
-    Ok((new_presets, new_groups))
+    Ok(template)
 }
