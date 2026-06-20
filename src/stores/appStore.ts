@@ -23,6 +23,10 @@ interface AppState {
   // Tauri IPC Channels for each connection (connectionId -> Channel)
   channels: Map<string, any>;
 
+  // Active log file path per connection (connectionId -> path). Drives the
+  // tab right-click menu state and the terminal bottom status bar.
+  logPaths: Map<string, string>;
+
   // Actions
   addTab: (tab: TerminalTab) => void;
   removeTab: (id: string) => void;
@@ -34,6 +38,8 @@ interface AppState {
   closeConnectionForm: () => void;
   setChannel: (connectionId: string, channel: any) => void;
   removeChannel: (connectionId: string) => void;
+  setLogPath: (connId: string, path: string) => void;
+  clearLogPath: (connId: string) => void;
 }
 
 const defaultSettings: AppSettings = {
@@ -55,6 +61,7 @@ export const useAppStore = create<AppState>((set) => ({
   connectionFormOpen: false,
   editingConfig: null,
   channels: new Map(),
+  logPaths: new Map(),
 
   addTab: (tab) =>
     set((state) => ({
@@ -107,5 +114,19 @@ export const useAppStore = create<AppState>((set) => ({
       const newChannels = new Map(state.channels);
       newChannels.delete(connectionId);
       return { channels: newChannels };
+    }),
+
+  setLogPath: (connId, path) =>
+    set((state) => {
+      const next = new Map(state.logPaths);
+      next.set(connId, path);
+      return { logPaths: next };
+    }),
+
+  clearLogPath: (connId) =>
+    set((state) => {
+      const next = new Map(state.logPaths);
+      next.delete(connId);
+      return { logPaths: next };
     }),
 }));
