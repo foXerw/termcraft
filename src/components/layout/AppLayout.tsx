@@ -1,10 +1,11 @@
 import React from "react";
 import { Button } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
 import Sidebar from "./Sidebar";
 import TabBar from "./TabBar";
 import TerminalManager from "../terminal/TerminalManager";
 import ConnectionForm from "../connection/ConnectionForm";
+import AboutDialog from "../AboutDialog";
 import { useAppStore } from "../../stores/appStore";
 
 const AppLayout: React.FC = () => {
@@ -14,6 +15,7 @@ const AppLayout: React.FC = () => {
   const editingConfig = useAppStore((s) => s.editingConfig);
   const openConnectionForm = useAppStore((s) => s.openConnectionForm);
   const closeConnectionForm = useAppStore((s) => s.closeConnectionForm);
+  const openAbout = useAppStore((s) => s.openAbout);
 
   return (
     <div className="app-layout">
@@ -35,6 +37,15 @@ const AppLayout: React.FC = () => {
               style={{ marginLeft: 8 }}
               onClick={() => openConnectionForm()}
             />
+            <Button
+              type="text"
+              icon={<InfoCircleOutlined />}
+              size="small"
+              style={{ marginLeft: "auto" }}
+              onClick={openAbout}
+            >
+              关于
+            </Button>
           </div>
           <TerminalManager />
         </div>
@@ -42,6 +53,7 @@ const AppLayout: React.FC = () => {
 
       {/* Connection form dialog */}
       <ConnectionForm open={connectionFormOpen} initialValues={editingConfig ?? undefined} onCancel={closeConnectionForm} />
+      <AboutDialog />
     </div>
   );
 };
