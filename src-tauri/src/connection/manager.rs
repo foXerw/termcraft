@@ -7,6 +7,7 @@ use tauri::ipc::Channel;
 use crate::connection::ssh::SSHHandler;
 use crate::connection::telnet::TelnetHandler;
 use crate::connection::local::LocalShellHandler;
+use crate::connection::logger::{LogChunk, LoggerHandle};
 use crate::connection::{ConnectionInfo, OutputTap};
 use crate::errors::AppError;
 
@@ -20,12 +21,14 @@ enum ConnectionEntry {
 /// Manages all active connections
 pub struct ConnectionManager {
     connections: Mutex<HashMap<String, ConnectionEntry>>,
+    loggers: Mutex<HashMap<String, LoggerHandle>>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Mutex::new(HashMap::new()),
+            loggers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -181,6 +184,47 @@ impl ConnectionManager {
                 let c = h.lock().await;
                 c.resize(cols, rows)
             }
+        }
+    }
+
+    /// Start logging a connection's output+input to `path`. Fails if the
+    /// connection doesn't exist or is already being logged.
+    pub async fn start_logging(&self, id: &str, path: String) -> Result<(), AppError> {
+        {
+            let loggers = self.loggers.lock().await;
+            if loggers.contains_key(id) {
+                return Err(AppError::Connection("该终端已在记录日志".to_string()));
+            }
+        }
+        let (sub_id, rx_out) = match self.subscribe_output(id).await {
+            Some(pair) => pair,
+            None => {
+                return Err(AppError::NotFound(format!(
+                    "Connection {} not found",
+                    id
+                )))
+            }
+        };
+        let handle = LoggerHandle::start(&path, rx_out, sub_id)?;
+        self.loggers.lock().await.insert(id.to_string(), handle);
+        Ok(())
+    }
+
+    /// Stop logging a connection (idempotent). Drops the writer sender (ends the
+    /// writer task, closing the file) and detaches the output-tap subscriber.
+    pub async fn stop_logging(&self, id: &str) {
+        let handle = self.loggers.lock().await.remove(id);
+        if let Some(handle) = handle {
+            self.unsubscribe_output(id, handle.out_sub_id).await;
+        }
+    }
+
+    /// Forward user input bytes to a connection's logger, if one is active.
+    /// No-op (not an error) when the connection isn't being logged.
+    pub async fn log_input(&self, id: &str, data: &[u8]) {
+        let loggers = self.loggers.lock().await;
+        if let Some(handle) = loggers.get(id) {
+            let _ = handle.sender.send(LogChunk::Input(data.to_vec()));
         }
     }
 }

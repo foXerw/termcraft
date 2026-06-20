@@ -2,6 +2,7 @@ pub mod manager;
 pub mod ssh;
 pub mod telnet;
 pub mod local;
+pub mod logger;
 
 use std::sync::{Arc, Mutex as StdMutex};
 
