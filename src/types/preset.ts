@@ -71,3 +71,10 @@ export type Schedule =
   | { type: 'Cron'; expression: string }
   | { type: 'Interval'; seconds: number }
   | { type: 'Once'; at: string };
+
+export interface PresetTemplate {
+  version: string; // "1.0"
+  exported_at: string;
+  presets: Preset[];
+  groups: PresetGroup[];
+}
