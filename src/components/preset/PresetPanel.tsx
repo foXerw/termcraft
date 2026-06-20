@@ -8,7 +8,7 @@ import PresetRunner from "./PresetRunner";
 import PresetImportDialog from "./PresetImportDialog";
 import { usePresetStore } from "../../stores/presetStore";
 import { useAppStore } from "../../stores/appStore";
-import { Preset, PresetGroup, PresetTemplate } from "../../types/preset";
+import { Preset, PresetGroup, ParsedTemplate } from "../../types/preset";
 
 const PresetPanel: React.FC = () => {
   const presets = usePresetStore((s) => s.presets);
@@ -21,7 +21,7 @@ const PresetPanel: React.FC = () => {
   // null for creation. Using an in-app Modal avoids the browser prompt, whose
   // title bar can't be styled (it shows the page origin like localhost:1420).
   const [groupModal, setGroupModal] = useState<{ rename: PresetGroup | null; value: string } | null>(null);
-  const [importPayload, setImportPayload] = useState<PresetTemplate | null>(null);
+  const [importPayload, setImportPayload] = useState<ParsedTemplate | null>(null);
 
   const handleExport = async (presetIds: string[]) => {
     // presetIds 空 = 全量
@@ -49,7 +49,7 @@ const PresetPanel: React.FC = () => {
     });
     if (!path) return;
     try {
-      const payload = await invoke<PresetTemplate>("parse_template_file", { path });
+      const payload = await invoke<ParsedTemplate>("parse_template_file", { path });
       setImportPayload(payload);
     } catch (e) {
       message.error(`导入失败: ${e}`);

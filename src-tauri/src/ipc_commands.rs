@@ -298,7 +298,7 @@ pub async fn export_presets_to_file(path: String, preset_ids: Vec<String>) -> Re
 }
 
 #[tauri::command]
-pub async fn parse_template_file(path: String) -> Result<template::PresetTemplate, String> {
+pub async fn parse_template_file(path: String) -> Result<template::ParsedTemplate, String> {
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("读取文件失败: {}", e))?;
     template::parse_template(&content).map_err(|e| e.to_string())
