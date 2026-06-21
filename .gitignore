@@ -13,6 +13,9 @@ src-tauri/target/
 *.swp
 *.swo
 
+# Claude Code superpowers (local agent working files)
+.superpowers/
+
 # OS
 Thumbs.db
 .DS_Store
