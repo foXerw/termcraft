@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Modal, Form, Input, Select, InputNumber, Switch, Radio, Button, Space, message } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 import { useAppStore } from "../../stores/appStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { ConnectionConfig } from "../../types/connection";
+import { ConnectionConfig, DEFAULT_SERIAL_CONFIG, SerialConfig } from "../../types/connection";
 
 interface ConnectionFormProps {
   open: boolean;
@@ -14,6 +15,8 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
   const [form] = Form.useForm();
   const [connType, setConnType] = useState<string>(initialValues?.conn_type || "SSH");
   const [connecting, setConnecting] = useState(false);
+  const [serialPorts, setSerialPorts] = useState<string[]>([]);
+  const [portsLoading, setPortsLoading] = useState(false);
   const addTab = useAppStore((s) => s.addTab);
   const closeConnectionForm = useAppStore((s) => s.closeConnectionForm);
   const setChannel = useAppStore((s) => s.setChannel);
@@ -21,6 +24,28 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
   const updateConfig = useConnectionStore((s) => s.updateConfig);
 
   const isEdit = !!initialValues;
+
+  // Enumerate available serial ports. Called once when the user picks Serial
+  // and again on manual refresh.
+  const refreshSerialPorts = async () => {
+    setPortsLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const ports = await invoke<string[]>("list_serial_ports");
+      setSerialPorts(ports);
+    } catch (e) {
+      console.error("list_serial_ports failed:", e);
+    } finally {
+      setPortsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (connType === "Serial" && serialPorts.length === 0) {
+      refreshSerialPorts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connType]);
 
   // Map a saved ConnectionConfig onto this form's flat field names. The form
   // uses auth_type + separate password/key_path/passphrase fields, while the
@@ -37,6 +62,13 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       port: config?.port ?? (config?.conn_type === "Telnet" ? 23 : 22),
       username: config?.username,
       shell: config?.shell,
+      // Serial fields flattened out of the nested `serial` object for the form.
+      serial_port: config?.serial?.port_path,
+      baud_rate: config?.serial?.baud_rate ?? DEFAULT_SERIAL_CONFIG.baud_rate,
+      data_bits: config?.serial?.data_bits ?? DEFAULT_SERIAL_CONFIG.data_bits,
+      parity: config?.serial?.parity ?? DEFAULT_SERIAL_CONFIG.parity,
+      stop_bits: config?.serial?.stop_bits ?? DEFAULT_SERIAL_CONFIG.stop_bits,
+      flow_control: config?.serial?.flow_control ?? DEFAULT_SERIAL_CONFIG.flow_control,
       auth_type: authType,
       password: config?.auth?.type === "Password" ? config.auth.password : "",
       key_path: config?.auth?.type === "PublicKey" ? config.auth.key_path : "",
@@ -58,17 +90,38 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
 
   // Build a ConnectionConfig from flat form values. Reuses existing id/tags
   // when editing, otherwise generates a fresh id.
-  const buildConfig = (values: any, id?: string): ConnectionConfig => ({
-    id: id ?? crypto.randomUUID(),
-    name: values.name || `${values.host || '本地Shell'}:${values.port || (values.conn_type === 'SSH' ? 22 : values.conn_type === 'Telnet' ? 23 : '')}`,
-    conn_type: values.conn_type,
-    host: values.host,
-    port: values.port,
-    username: values.username,
-    auth: buildAuth(values),
-    shell: values.shell,
-    tags: initialValues?.tags ?? [],
-  });
+  const buildConfig = (values: any, id?: string): ConnectionConfig => {
+    const connType = values.conn_type as ConnectionConfig["conn_type"];
+    const serial: SerialConfig | undefined = connType === "Serial"
+      ? {
+          port_path: values.serial_port,
+          baud_rate: values.baud_rate ?? DEFAULT_SERIAL_CONFIG.baud_rate,
+          data_bits: values.data_bits ?? DEFAULT_SERIAL_CONFIG.data_bits,
+          parity: values.parity ?? DEFAULT_SERIAL_CONFIG.parity,
+          stop_bits: values.stop_bits ?? DEFAULT_SERIAL_CONFIG.stop_bits,
+          flow_control: values.flow_control ?? DEFAULT_SERIAL_CONFIG.flow_control,
+        }
+      : undefined;
+
+    const defaultName =
+      connType === "Serial"
+        ? values.serial_port || "串口"
+        : `${values.host || '本地Shell'}:${values.port || (connType === 'SSH' ? 22 : connType === 'Telnet' ? 23 : '')}`;
+
+    return {
+      id: id ?? crypto.randomUUID(),
+      name: values.name || defaultName,
+      conn_type: connType,
+      host: values.host,
+      port: values.port,
+      username: values.username,
+      // Serial/Telnet/LocalShell have no auth; only SSH carries credentials.
+      auth: connType === "SSH" ? buildAuth(values) : undefined,
+      shell: values.shell,
+      serial,
+      tags: initialValues?.tags ?? [],
+    };
+  };
 
   // Save without connecting — used to register a connection just for
   // reachability monitoring (e.g. testing a server you don't want to log into).
@@ -124,6 +177,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       if (values.conn_type === "SSH") {
         await invoke("connect_ssh", {
           id,
+          name: config.name,
           host: values.host,
           port: values.port || 22,
           username: values.username,
@@ -133,6 +187,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       } else if (values.conn_type === "Telnet") {
         await invoke("connect_telnet", {
           id,
+          name: config.name,
           host: values.host,
           port: values.port || 23,
           channel,
@@ -140,7 +195,15 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
       } else if (values.conn_type === "LocalShell") {
         await invoke("connect_local", {
           id,
+          name: config.name,
           shell: values.shell || null,
+          channel,
+        });
+      } else if (values.conn_type === "Serial") {
+        await invoke("connect_serial", {
+          id,
+          name: config.name,
+          config: config.serial,
           channel,
         });
       }
@@ -197,6 +260,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
             <Select.Option value="SSH">SSH</Select.Option>
             <Select.Option value="Telnet">Telnet</Select.Option>
             <Select.Option value="LocalShell">本地 Shell</Select.Option>
+            <Select.Option value="Serial">串口</Select.Option>
           </Select>
         </Form.Item>
 
@@ -204,7 +268,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
           <Input placeholder="连接名称（可选）" autoComplete="off" />
         </Form.Item>
 
-        {connType !== "LocalShell" && (
+        {connType !== "LocalShell" && connType !== "Serial" && (
           <>
             <Form.Item name="host" label="主机" rules={[{ required: true, message: "请输入主机地址" }]}>
               <Input placeholder="192.168.1.1 或 example.com" autoComplete="off" />
@@ -258,6 +322,64 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
           <Form.Item name="shell" label="Shell 程序">
             <Input placeholder="留空使用默认 Shell（Windows: cmd.exe, Linux: bash）" autoComplete="off" />
           </Form.Item>
+        )}
+
+        {connType === "Serial" && (
+          <>
+            <Form.Item label="串口">
+              <Space.Compact style={{ width: "100%" }}>
+                <Form.Item name="serial_port" noStyle rules={[{ required: true, message: "请选择串口" }]}>
+                  <Select
+                    placeholder="选择串口"
+                    loading={portsLoading}
+                    options={serialPorts.map((p) => ({ label: p, value: p }))}
+                    notFoundContent={portsLoading ? "枚举中…" : "未发现串口"}
+                  />
+                </Form.Item>
+                <Button icon={<ReloadOutlined />} onClick={refreshSerialPorts} loading={portsLoading} />
+              </Space.Compact>
+            </Form.Item>
+            <Form.Item name="baud_rate" label="波特率" rules={[{ required: true }]}>
+              <Select
+                options={[300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((b) => ({ label: String(b), value: b }))}
+              />
+            </Form.Item>
+            <Form.Item name="data_bits" label="数据位">
+              <Select
+                options={[
+                  { label: "5", value: "Five" },
+                  { label: "6", value: "Six" },
+                  { label: "7", value: "Seven" },
+                  { label: "8", value: "Eight" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="parity" label="校验">
+              <Select
+                options={[
+                  { label: "None", value: "None" },
+                  { label: "Odd", value: "Odd" },
+                  { label: "Even", value: "Even" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="stop_bits" label="停止位">
+              <Select
+                options={[
+                  { label: "1", value: "One" },
+                  { label: "2", value: "Two" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="flow_control" label="流控">
+              <Select
+                options={[
+                  { label: "None", value: "None" },
+                  { label: "Software (XON/XOFF)", value: "Software" },
+                ]}
+              />
+            </Form.Item>
+          </>
         )}
 
         {!isEdit && (

@@ -37,6 +37,8 @@ pub fn run() {
             ipc_commands::connect_ssh,
             ipc_commands::connect_telnet,
             ipc_commands::connect_local,
+            ipc_commands::connect_serial,
+            ipc_commands::list_serial_ports,
             ipc_commands::disconnect,
             ipc_commands::write_to_connection,
             ipc_commands::resize_connection,

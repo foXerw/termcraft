@@ -92,7 +92,7 @@ const DefaultTerminal: React.FC = () => {
       });
 
       try {
-        await invoke("connect_local", { id, shell: null, channel });
+        await invoke("connect_local", { id, name: "本地 Shell", shell: null, channel });
       } catch (e) {
         console.error("default local shell failed:", e);
       }

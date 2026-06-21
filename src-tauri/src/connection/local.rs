@@ -2,12 +2,13 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize, MasterPty, Child};
 
-use crate::connection::{ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
+use crate::connection::{ConnType, ConnHandler, OutputTap, emit_closed, forward_to_frontend, new_output_tap, tap_send};
 use crate::errors::AppError;
 use tauri::AppHandle;
 
 pub struct LocalShellHandler {
     id: String,
+    name: String,
     shell: String,
     output_tap: OutputTap,
     app: AppHandle,
@@ -19,9 +20,10 @@ pub struct LocalShellHandler {
 }
 
 impl LocalShellHandler {
-    pub fn new(id: String, shell: String, app: AppHandle) -> Self {
+    pub fn new(id: String, name: String, shell: String, app: AppHandle) -> Self {
         Self {
             id,
+            name,
             shell,
             output_tap: new_output_tap(),
             app,
@@ -31,10 +33,6 @@ impl LocalShellHandler {
             alive: false,
             read_task: None,
         }
-    }
-
-    pub fn output_tap(&self) -> OutputTap {
-        self.output_tap.clone()
     }
 
     /// Start a local shell PTY
@@ -100,9 +98,7 @@ impl LocalShellHandler {
                             Ok(0) => break,
                             Ok(n) => {
                                 tap_send(&tap, &buf[..n]);
-                                let text = String::from_utf8_lossy(&buf[..n]);
-                                let json = serde_json::to_string(&text).unwrap_or_default();
-                                let _ = frontend_channel.send(tauri::ipc::InvokeResponseBody::Json(json));
+                                forward_to_frontend(&frontend_channel, &buf[..n]);
                             }
                             Err(_) => break,
                         }
@@ -161,16 +157,37 @@ impl LocalShellHandler {
         }
         Ok(())
     }
+}
 
-    pub fn is_alive(&self) -> bool {
-        self.alive
+#[async_trait::async_trait]
+impl ConnHandler for LocalShellHandler {
+    fn id(&self) -> &str {
+        &self.id
     }
-
-    pub fn conn_type(&self) -> ConnType {
+    fn conn_type(&self) -> ConnType {
         ConnType::LocalShell
     }
-
-    pub fn id(&self) -> &str {
-        &self.id
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
+    }
+    // `LocalShellHandler`'s connect/write/resize/disconnect are sync; async-trait
+    // happily wraps them without awaiting internally.
+    async fn connect(&mut self, channel: tauri::ipc::Channel) -> Result<(), AppError> {
+        LocalShellHandler::connect(self, channel)
+    }
+    async fn write(&self, data: &str) -> Result<(), AppError> {
+        LocalShellHandler::write(self, data)
+    }
+    async fn disconnect(&mut self) -> Result<(), AppError> {
+        LocalShellHandler::disconnect(self)
+    }
+    async fn resize(&self, cols: u16, rows: u16) -> Result<(), AppError> {
+        LocalShellHandler::resize(self, cols, rows)
     }
 }

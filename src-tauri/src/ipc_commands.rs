@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use tokio::sync::Mutex;
-use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::connection::manager::ConnectionManager;
 use crate::connection::ssh::SSHHandler;
 use crate::connection::telnet::TelnetHandler;
 use crate::connection::local::LocalShellHandler;
-use crate::connection::{AuthConfig, ConnectionConfig, ConnectionInfo};
+use crate::connection::serial::SerialHandler;
+use crate::connection::{AuthConfig, ConnectionConfig, ConnectionInfo, SerialConfig};
 use crate::preset::engine::PresetEngine;
 use crate::preset::models::*;
 use crate::preset::template;
@@ -27,6 +28,7 @@ pub struct AppState {
 #[tauri::command]
 pub async fn connect_ssh(
     id: String,
+    name: String,
     host: String,
     port: u16,
     username: String,
@@ -35,51 +37,77 @@ pub async fn connect_ssh(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut handler = SSHHandler::new(id.clone(), host, port, username, auth, app);
-    handler.connect()
+    let mut handler = SSHHandler::new(id.clone(), name, host, port, username, auth, app);
+    handler.connect(channel)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Start forwarding data to frontend
-    handler.start_forward_task(channel);
-
-    state.connection_manager.register_ssh(id, handler).await;
+    state.connection_manager.register(id, Box::new(handler)).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn connect_telnet(
     id: String,
+    name: String,
     host: String,
     port: u16,
     channel: Channel,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut handler = TelnetHandler::new(id.clone(), host, port, app);
+    let mut handler = TelnetHandler::new(id.clone(), name, host, port, app);
     handler.connect(channel)
         .await
         .map_err(|e| e.to_string())?;
 
-    state.connection_manager.register_telnet(id, handler).await;
+    state.connection_manager.register(id, Box::new(handler)).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn connect_local(
     id: String,
+    name: String,
     shell: Option<String>,
     channel: Channel,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let shell_cmd = shell.unwrap_or_default();
-    let mut handler = LocalShellHandler::new(id.clone(), shell_cmd, app);
+    let mut handler = LocalShellHandler::new(id.clone(), name, shell_cmd, app);
     handler.connect(channel)
         .map_err(|e| e.to_string())?;
 
-    state.connection_manager.register_local(id, handler).await;
+    state.connection_manager.register(id, Box::new(handler)).await;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn connect_serial(
+    id: String,
+    name: String,
+    config: SerialConfig,
+    channel: Channel,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut handler = SerialHandler::new(id.clone(), name, config, app);
+    handler.connect(channel)
+        .map_err(|e| e.to_string())?;
+
+    state.connection_manager.register(id, Box::new(handler)).await;
+    Ok(())
+}
+
+/// Enumerate available serial port paths on the system (e.g. COM3 on Windows,
+/// /dev/ttyUSB0 on Linux). Drives the port picker `<Select>` in the connection
+/// form.
+#[tauri::command]
+pub fn list_serial_ports() -> Result<Vec<String>, String> {
+    serialport::available_ports()
+        .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -162,7 +190,8 @@ pub async fn load_connection_configs() -> Result<Vec<ConnectionConfig>, String> 
 
 /// Replace the set of connections the reachability scheduler probes.
 /// Each entry: (id, host, port). Frontend derives these from its config list
-/// (only connections that have a host, i.e. SSH/Telnet).
+/// (only connections that have a host — SSH/Telnet; Serial/LocalShell have no
+/// host and are skipped).
 #[tauri::command]
 pub async fn set_reachability_targets(
     targets: Vec<(String, String, u16)>,

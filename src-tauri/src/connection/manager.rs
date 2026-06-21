@@ -2,25 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tauri::ipc::Channel;
 
-use crate::connection::ssh::SSHHandler;
-use crate::connection::telnet::TelnetHandler;
-use crate::connection::local::LocalShellHandler;
 use crate::connection::logger::{LogChunk, LoggerHandle};
-use crate::connection::{ConnectionInfo, OutputTap};
+use crate::connection::{ConnHandler, ConnectionInfo, OutputTap};
 use crate::errors::AppError;
 
-/// Connection type enum for storing different handlers
-enum ConnectionEntry {
-    SSH(Arc<Mutex<SSHHandler>>),
-    Telnet(Arc<Mutex<TelnetHandler>>),
-    Local(Arc<Mutex<LocalShellHandler>>),
-}
+/// All connections share the trait-object type, so the manager never has to
+/// match on a per-protocol enum again.
+type Handler = Arc<Mutex<Box<dyn ConnHandler + Send + Sync>>>;
 
 /// Manages all active connections
 pub struct ConnectionManager {
-    connections: Mutex<HashMap<String, ConnectionEntry>>,
+    connections: Mutex<HashMap<String, Handler>>,
     loggers: Mutex<HashMap<String, LoggerHandle>>,
 }
 
@@ -32,39 +25,17 @@ impl ConnectionManager {
         }
     }
 
-    /// Register an SSH connection
-    pub async fn register_ssh(&self, id: String, handler: SSHHandler) {
-        self.connections.lock().await.insert(id, ConnectionEntry::SSH(Arc::new(Mutex::new(handler))));
-    }
-
-    /// Register a Telnet connection
-    pub async fn register_telnet(&self, id: String, handler: TelnetHandler) {
-        self.connections.lock().await.insert(id, ConnectionEntry::Telnet(Arc::new(Mutex::new(handler))));
-    }
-
-    /// Register a local shell connection
-    pub async fn register_local(&self, id: String, handler: LocalShellHandler) {
-        self.connections.lock().await.insert(id, ConnectionEntry::Local(Arc::new(Mutex::new(handler))));
+    /// Register any connection handler (SSH / Telnet / LocalShell / Serial).
+    pub async fn register(&self, id: String, handler: Box<dyn ConnHandler + Send + Sync>) {
+        self.connections.lock().await.insert(id, Arc::new(Mutex::new(handler)));
     }
 
     /// Remove a connection (and disconnect it)
     pub async fn remove(&self, id: &str) {
         let entry = self.connections.lock().await.remove(id);
         if let Some(entry) = entry {
-            match entry {
-                ConnectionEntry::SSH(h) => {
-                    let mut handler = h.lock().await;
-                    handler.disconnect().await.ok();
-                }
-                ConnectionEntry::Telnet(h) => {
-                    let mut handler = h.lock().await;
-                    handler.disconnect().await.ok();
-                }
-                ConnectionEntry::Local(h) => {
-                    let mut handler = h.lock().await;
-                    handler.disconnect().ok();
-                }
-            }
+            let mut handler = entry.lock().await;
+            handler.disconnect().await.ok();
         }
     }
 
@@ -73,35 +44,13 @@ impl ConnectionManager {
         let conns = self.connections.lock().await;
         let mut infos = Vec::new();
         for (id, entry) in conns.iter() {
-            match entry {
-                ConnectionEntry::SSH(h) => {
-                    let c = h.lock().await;
-                    infos.push(ConnectionInfo {
-                        id: id.clone(),
-                        name: String::new(),
-                        conn_type: c.conn_type(),
-                        alive: c.is_alive(),
-                    });
-                }
-                ConnectionEntry::Telnet(h) => {
-                    let c = h.lock().await;
-                    infos.push(ConnectionInfo {
-                        id: id.clone(),
-                        name: String::new(),
-                        conn_type: c.conn_type(),
-                        alive: c.is_alive(),
-                    });
-                }
-                ConnectionEntry::Local(h) => {
-                    let c = h.lock().await;
-                    infos.push(ConnectionInfo {
-                        id: id.clone(),
-                        name: String::new(),
-                        conn_type: c.conn_type(),
-                        alive: c.is_alive(),
-                    });
-                }
-            }
+            let c = entry.lock().await;
+            infos.push(ConnectionInfo {
+                id: id.clone(),
+                name: c.name().to_string(),
+                conn_type: c.conn_type(),
+                alive: c.is_alive(),
+            });
         }
         infos
     }
@@ -111,32 +60,16 @@ impl ConnectionManager {
         let conns = self.connections.lock().await;
         let entry = conns.get(id)
             .ok_or(AppError::NotFound(format!("Connection {} not found", id)))?;
-
-        match entry {
-            ConnectionEntry::SSH(h) => {
-                let c = h.lock().await;
-                c.write(data).await
-            }
-            ConnectionEntry::Telnet(h) => {
-                let c = h.lock().await;
-                c.write(data).await
-            }
-            ConnectionEntry::Local(h) => {
-                let c = h.lock().await;
-                c.write(data)
-            }
-        }
+        let c = entry.lock().await;
+        c.write(data).await
     }
 
     /// Get the output tap of a connection (None if no such connection).
     async fn tap_of(&self, id: &str) -> Option<OutputTap> {
         let conns = self.connections.lock().await;
         let entry = conns.get(id)?;
-        Some(match entry {
-            ConnectionEntry::SSH(h) => h.lock().await.output_tap(),
-            ConnectionEntry::Telnet(h) => h.lock().await.output_tap(),
-            ConnectionEntry::Local(h) => h.lock().await.output_tap(),
-        })
+        let c = entry.lock().await;
+        Some(c.output_tap())
     }
 
     /// Subscribe to a connection's output stream. Returns a `(sub_id, receiver)`
@@ -170,21 +103,8 @@ impl ConnectionManager {
         let conns = self.connections.lock().await;
         let entry = conns.get(id)
             .ok_or(AppError::NotFound(format!("Connection {} not found", id)))?;
-
-        match entry {
-            ConnectionEntry::SSH(h) => {
-                let c = h.lock().await;
-                c.resize(cols, rows).await
-            }
-            ConnectionEntry::Telnet(h) => {
-                // Telnet doesn't have resize — it's a raw TCP stream
-                Ok(())
-            }
-            ConnectionEntry::Local(h) => {
-                let c = h.lock().await;
-                c.resize(cols, rows)
-            }
-        }
+        let c = entry.lock().await;
+        c.resize(cols, rows).await
     }
 
     /// Start logging a connection's output+input to `path`. Fails if the

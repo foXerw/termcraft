@@ -1,22 +1,22 @@
 import { useCallback } from "react";
-import { ConnectionConfig, AuthConfig } from "../types/connection";
+import { AuthConfig, SerialConfig } from "../types/connection";
 import { useAppStore } from "../stores/appStore";
 
 export function useConnection() {
   const addTab = useAppStore((s) => s.addTab);
 
   const connectSSH = useCallback(async (
+    name: string,
     host: string,
     port: number,
     username: string,
     auth: AuthConfig,
-    name?: string,
   ) => {
     const { invoke, Channel } = await import("@tauri-apps/api/core");
     const id = crypto.randomUUID();
     const channel = new Channel<string>();
 
-    await invoke("connect_ssh", { id, host, port, username, auth, channel });
+    await invoke("connect_ssh", { id, name, host, port, username, auth, channel });
 
     addTab({
       id,
@@ -30,15 +30,15 @@ export function useConnection() {
   }, [addTab]);
 
   const connectTelnet = useCallback(async (
+    name: string,
     host: string,
     port: number,
-    name?: string,
   ) => {
     const { invoke, Channel } = await import("@tauri-apps/api/core");
     const id = crypto.randomUUID();
     const channel = new Channel<string>();
 
-    await invoke("connect_telnet", { id, host, port, channel });
+    await invoke("connect_telnet", { id, name, host, port, channel });
 
     addTab({
       id,
@@ -52,20 +52,41 @@ export function useConnection() {
   }, [addTab]);
 
   const connectLocal = useCallback(async (
+    name: string,
     shell?: string,
-    name?: string,
   ) => {
     const { invoke, Channel } = await import("@tauri-apps/api/core");
     const id = crypto.randomUUID();
     const channel = new Channel<string>();
 
-    await invoke("connect_local", { id, shell: shell || null, channel });
+    await invoke("connect_local", { id, name, shell: shell || null, channel });
 
     addTab({
       id,
       connectionId: id,
       title: name || "本地 Shell",
       connType: "LocalShell",
+      alive: true,
+    });
+
+    return { id, channel };
+  }, [addTab]);
+
+  const connectSerial = useCallback(async (
+    name: string,
+    serial: SerialConfig,
+  ) => {
+    const { invoke, Channel } = await import("@tauri-apps/api/core");
+    const id = crypto.randomUUID();
+    const channel = new Channel<string>();
+
+    await invoke("connect_serial", { id, name, config: serial, channel });
+
+    addTab({
+      id,
+      connectionId: id,
+      title: name || serial.port_path || "串口",
+      connType: "Serial",
       alive: true,
     });
 
@@ -92,6 +113,7 @@ export function useConnection() {
     connectSSH,
     connectTelnet,
     connectLocal,
+    connectSerial,
     disconnect,
     writeToConnection,
     resizeConnection,

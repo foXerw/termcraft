@@ -6,9 +6,8 @@ use russh::*;
 use russh::client::{Handle, Handler, Session};
 use russh_keys::key::PublicKey as SshPublicKey;
 
-use crate::connection::{AuthConfig, ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
+use crate::connection::{AuthConfig, ConnType, ConnHandler, OutputTap, emit_closed, forward_to_frontend, new_output_tap, tap_send};
 use crate::errors::AppError;
-use tauri::ipc::InvokeResponseBody;
 use tauri::AppHandle;
 
 /// Custom client handler that forwards received data to an mpsc channel.
@@ -118,6 +117,7 @@ impl Handler for SSHClientHandler {
 
 pub struct SSHHandler {
     id: String,
+    name: String,
     host: String,
     port: u16,
     username: String,
@@ -132,9 +132,10 @@ pub struct SSHHandler {
 }
 
 impl SSHHandler {
-    pub fn new(id: String, host: String, port: u16, username: String, auth: AuthConfig, app: AppHandle) -> Self {
+    pub fn new(id: String, name: String, host: String, port: u16, username: String, auth: AuthConfig, app: AppHandle) -> Self {
         Self {
             id,
+            name,
             host,
             port,
             username,
@@ -153,8 +154,10 @@ impl SSHHandler {
         self.output_tap.clone()
     }
 
-    /// Connect to SSH server asynchronously
-    pub async fn connect(&mut self) -> Result<(), AppError> {
+    /// Connect to SSH server asynchronously, then start forwarding output to
+    /// the frontend channel. (Merged from the former two-step `connect` +
+    /// `start_forward_task` API so the trait's single `connect(channel)` works.)
+    pub async fn connect(&mut self, frontend_channel: tauri::ipc::Channel) -> Result<(), AppError> {
         let (output_tx, output_rx) = mpsc::unbounded_channel();
 
         let config = client::Config::default();
@@ -232,14 +235,7 @@ impl SSHHandler {
         self.output_rx = Some(output_rx);
         self.alive = true;
 
-        Ok(())
-    }
-
-    /// Start forwarding data from SSH output to frontend
-    pub fn start_forward_task(
-        &mut self,
-        frontend_channel: tauri::ipc::Channel,
-    ) {
+        // Start forwarding data from SSH output to frontend.
         if let Some(mut output_rx) = self.output_rx.take() {
             let tap = self.output_tap.clone();
             let app = self.app.clone();
@@ -248,20 +244,15 @@ impl SSHHandler {
                 while let Some(data) = output_rx.recv().await {
                     // Copy raw bytes to any output subscriber (preset engine) first.
                     tap_send(&tap, &data);
-                    // Convert raw bytes to string — terminal data may contain
-                    // escape sequences, so we need to handle UTF-8 properly
-                    let text = String::from_utf8_lossy(&data);
-                    // Wrap the terminal text as a JSON string value so the frontend
-                    // can deserialize it correctly. Terminal data contains ANSI
-                    // escape sequences which must survive JSON serialization.
-                    let json_str = serde_json::to_string(&text).unwrap_or_default();
-                    let _ = frontend_channel.send(InvokeResponseBody::Json(json_str));
+                    forward_to_frontend(&frontend_channel, &data);
                 }
                 // Stream ended (session closed / shell exited): notify the frontend.
                 emit_closed(&app, &id);
             });
             self.forward_task = Some(task);
         }
+
+        Ok(())
     }
 
     /// Disconnect from SSH server
@@ -315,15 +306,46 @@ impl SSHHandler {
         Ok(())
     }
 
-    pub fn is_alive(&self) -> bool {
+    fn is_alive(&self) -> bool {
         self.alive
     }
 
-    pub fn conn_type(&self) -> ConnType {
+    fn conn_type(&self) -> ConnType {
         ConnType::SSH
     }
 
-    pub fn id(&self) -> &str {
+    fn id(&self) -> &str {
         &self.id
+    }
+}
+
+#[async_trait::async_trait]
+impl ConnHandler for SSHHandler {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn conn_type(&self) -> ConnType {
+        ConnType::SSH
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
+    }
+    async fn connect(&mut self, channel: tauri::ipc::Channel) -> Result<(), AppError> {
+        SSHHandler::connect(self, channel).await
+    }
+    async fn write(&self, data: &str) -> Result<(), AppError> {
+        SSHHandler::write(self, data).await
+    }
+    async fn disconnect(&mut self) -> Result<(), AppError> {
+        SSHHandler::disconnect(self).await
+    }
+    async fn resize(&self, cols: u16, rows: u16) -> Result<(), AppError> {
+        SSHHandler::resize(self, cols, rows).await
     }
 }

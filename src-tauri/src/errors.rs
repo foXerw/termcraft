@@ -14,6 +14,9 @@ pub enum AppError {
     #[error("Local shell error: {0}")]
     LocalShell(String),
 
+    #[error("Serial error: {0}")]
+    Serial(String),
+
     #[error("Preset error: {0}")]
     Preset(String),
 

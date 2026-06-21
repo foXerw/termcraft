@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-use crate::connection::{ConnType, OutputTap, emit_closed, new_output_tap, tap_send};
+use crate::connection::{ConnType, ConnHandler, OutputTap, emit_closed, forward_to_frontend, new_output_tap, tap_send};
 use crate::errors::AppError;
 use tauri::AppHandle;
 
@@ -11,6 +11,7 @@ type WriteHalf = tokio::io::WriteHalf<TcpStream>;
 
 pub struct TelnetHandler {
     id: String,
+    name: String,
     host: String,
     port: u16,
     output_tap: OutputTap,
@@ -21,9 +22,10 @@ pub struct TelnetHandler {
 }
 
 impl TelnetHandler {
-    pub fn new(id: String, host: String, port: u16, app: AppHandle) -> Self {
+    pub fn new(id: String, name: String, host: String, port: u16, app: AppHandle) -> Self {
         Self {
             id,
+            name,
             host,
             port,
             output_tap: new_output_tap(),
@@ -32,10 +34,6 @@ impl TelnetHandler {
             alive: false,
             read_task: None,
         }
-    }
-
-    pub fn output_tap(&self) -> OutputTap {
-        self.output_tap.clone()
     }
 
     /// Connect to Telnet server asynchronously
@@ -67,9 +65,7 @@ impl TelnetHandler {
                     Ok(0) => break,
                     Ok(n) => {
                         tap_send(&tap, &buf[..n]);
-                        let text = String::from_utf8_lossy(&buf[..n]);
-                        let json = serde_json::to_string(&text).unwrap_or_default();
-                        let _ = frontend_channel.send(tauri::ipc::InvokeResponseBody::Json(json));
+                        forward_to_frontend(&frontend_channel, &buf[..n]);
                     }
                     Err(_) => break,
                 }
@@ -105,16 +101,33 @@ impl TelnetHandler {
         self.write_half = None;
         Ok(())
     }
+}
 
-    pub fn is_alive(&self) -> bool {
-        self.alive
-    }
-
-    pub fn conn_type(&self) -> ConnType {
-        ConnType::Telnet
-    }
-
-    pub fn id(&self) -> &str {
+#[async_trait::async_trait]
+impl ConnHandler for TelnetHandler {
+    fn id(&self) -> &str {
         &self.id
     }
+    fn conn_type(&self) -> ConnType {
+        ConnType::Telnet
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn output_tap(&self) -> OutputTap {
+        self.output_tap.clone()
+    }
+    async fn connect(&mut self, channel: tauri::ipc::Channel) -> Result<(), AppError> {
+        TelnetHandler::connect(self, channel).await
+    }
+    async fn write(&self, data: &str) -> Result<(), AppError> {
+        TelnetHandler::write(self, data).await
+    }
+    async fn disconnect(&mut self) -> Result<(), AppError> {
+        TelnetHandler::disconnect(self).await
+    }
+    // resize: default no-op (raw TCP stream, no PTY).
 }

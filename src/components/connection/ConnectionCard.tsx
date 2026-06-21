@@ -49,6 +49,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
         }
         await invoke("connect_ssh", {
           id,
+          name: config.name,
           host: config.host,
           port: config.port || 22,
           username: config.username,
@@ -62,6 +63,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
         }
         await invoke("connect_telnet", {
           id,
+          name: config.name,
           host: config.host,
           port: config.port || 23,
           channel,
@@ -69,7 +71,19 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
       } else if (config.conn_type === "LocalShell") {
         await invoke("connect_local", {
           id,
+          name: config.name,
           shell: config.shell || null,
+          channel,
+        });
+      } else if (config.conn_type === "Serial") {
+        if (!config.serial?.port_path) {
+          console.error("Serial config missing required field (serial.port_path)");
+          return;
+        }
+        await invoke("connect_serial", {
+          id,
+          name: config.name,
+          config: config.serial,
           channel,
         });
       }
@@ -107,6 +121,7 @@ const ConnectionCard: React.FC<ConnectionCardProps> = ({ config }) => {
     SSH: "blue",
     Telnet: "green",
     LocalShell: "orange",
+    Serial: "purple",
   };
 
   return (

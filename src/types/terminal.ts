@@ -2,7 +2,7 @@ export interface TerminalTab {
   id: string;
   connectionId: string;
   title: string;
-  connType: 'SSH' | 'Telnet' | 'LocalShell';
+  connType: 'SSH' | 'Telnet' | 'LocalShell' | 'Serial';
   alive: boolean;
 }
 
