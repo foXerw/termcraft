@@ -10,6 +10,7 @@
   - **SSH**：基于 `russh`，支持 PTY 伪终端、密钥/密码认证
   - **Telnet**：基于 `tokio` 原始 TCP 流
   - **本地 Shell**：基于 `portable_pty` 的本地终端
+  - **串口（Serial）**：基于 `serialport`，支持端口枚举下拉与波特率/数据位/校验/停止位/流控配置
 - **流畅的终端渲染**：xterm.js 5 + WebGL addon，硬件加速渲染
 - **连接管理**：分组管理连接配置，支持新增/编辑/删除
 - **预设命令引擎（PresetEngine）**
@@ -27,7 +28,7 @@
 | 层级 | 技术 |
 |------|------|
 | 桌面框架 | Tauri v2（含 `tauri-plugin-shell` / `dialog` / `opener`） |
-| 后端 | Rust、Tokio、russh、portable-pty、keyring |
+| 后端 | Rust、Tokio、russh、portable-pty、serialport、keyring |
 | 前端框架 | React 18、TypeScript |
 | UI 组件库 | Ant Design 5 |
 | 状态管理 | Zustand 4 |
@@ -91,11 +92,12 @@ termcraft/
 │   │   ├── config/               # 数据模型与 JSON 持久化
 │   │   │   ├── models.rs
 │   │   │   └── store.rs
-│   │   ├── connection/           # 协议实现
+│   │   ├── connection/           # 协议实现（统一 ConnHandler trait）
 │   │   │   ├── ssh.rs
 │   │   │   ├── telnet.rs
 │   │   │   ├── local.rs
-│   │   │   ├── manager.rs        # ConnectionManager
+│   │   │   ├── serial.rs        # 串口（serialport）
+│   │   │   ├── manager.rs        # ConnectionManager（trait object）
 │   │   │   └── logger.rs         # 终端会话日志
 │   │   ├── preset/               # 预设引擎
 │   │   │   ├── engine.rs
@@ -122,7 +124,7 @@ termcraft/
 ### 后端状态
 
 - `AppState` 持有 `ConnectionManager` 与 `Mutex<PresetEngine>`，通过 Tauri `.manage()` 注入。
-- `ConnectionManager` 使用 `HashMap<u64, ConnectionEntry>`，每个连接以 `Arc<Mutex<Handler>>` 管理其 SSH / Telnet / 本地 Shell 处理器。
+- `ConnectionManager` 使用 `HashMap<String, Arc<Mutex<Box<dyn ConnHandler + Send + Sync>>>>`，各协议 handler（SSH/Telnet/LocalShell/Serial）实现统一的 `ConnHandler` trait；新增协议只需一个 `impl` 块，无需改 manager。
 
 ### 数据存储位置
 
