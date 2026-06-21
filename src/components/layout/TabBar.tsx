@@ -4,14 +4,16 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/appStore";
 
-/** Build the default log filename: termcraft-<tabTitle>-<timestamp>.log
- *  with illegal filename chars stripped from the title. */
-function defaultLogName(tabTitle: string): string {
+/** Build the default log filename: termcraft-<connType>-<tabTitle>-<timestamp>.log
+ *  with illegal filename chars stripped from the title. connType is lowercased
+ *  (ssh / telnet / localshell) so the file is easy to grep by connection method. */
+function defaultLogName(connType: string, tabTitle: string): string {
+  const method = (connType || "unknown").toLowerCase();
   const safe = (tabTitle || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "").trim() || "terminal";
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `termcraft-${safe}-${ts}.log`;
+  return `termcraft-${method}-${safe}-${ts}.log`;
 }
 
 const TabBar: React.FC = () => {
@@ -23,9 +25,9 @@ const TabBar: React.FC = () => {
   const setLogPath = useAppStore((s) => s.setLogPath);
   const clearLogPath = useAppStore((s) => s.clearLogPath);
 
-  const startLogging = async (tab: { id: string; connectionId: string; title: string }) => {
+  const startLogging = async (tab: { id: string; connectionId: string; title: string; connType: string }) => {
     const path = await save({
-      defaultPath: defaultLogName(tab.title),
+      defaultPath: defaultLogName(tab.connType, tab.title),
       filters: [{ name: "日志文件", extensions: ["log", "txt"] }],
     });
     if (!path) return;
@@ -66,7 +68,7 @@ const TabBar: React.FC = () => {
                 key: "start",
                 label: "开始记录日志",
                 onClick: () =>
-                  startLogging({ id: tab.id, connectionId: tab.connectionId, title: tab.title }),
+                  startLogging({ id: tab.id, connectionId: tab.connectionId, title: tab.title, connType: tab.connType }),
               },
         ];
         return (
