@@ -16,15 +16,18 @@
   - 变量替换语法 `{{name}}`
   - 单条 / 批量 / 循环三种执行模式
   - 运行中可取消
-- **本地数据持久化**：连接、预设、分组、计划任务、设置等以 JSON 文件原子化写入（写 `.tmp` 再重命名）
+- **预设导入/导出**：支持将预设导出为文件、从文件导入（带逐项冲突解决）与模板文件解析
+- **终端会话日志**：每个终端可单独启动/停止日志记录，日志路径栏可点击打开，自动剥离 ANSI 转义以保证纯文本可读
+- **关于对话框**：应用信息弹窗，正文由 Markdown 渲染
+- **本地数据持久化**：连接、预设、分组、计划任务、设置等以 JSON 文件原子化写入（写 `.tmp` 再重命名）；SSH/Telnet 密码与密钥口令存入系统凭据库（Windows Credential Manager / macOS Keychain / Linux Secret Service），JSON 中仅保留空占位符
 - **现代化 UI**：React 18 + Ant Design 5 + Zustand 状态管理
 
 ## 🛠 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| 桌面框架 | Tauri v2 |
-| 后端 | Rust、Tokio、russh、portable-pty |
+| 桌面框架 | Tauri v2（含 `tauri-plugin-shell` / `dialog` / `opener`） |
+| 后端 | Rust、Tokio、russh、portable-pty、keyring |
 | 前端框架 | React 18、TypeScript |
 | UI 组件库 | Ant Design 5 |
 | 状态管理 | Zustand 4 |
@@ -75,7 +78,8 @@ npm run build            # 仅构建前端（tsc && vite build）
 termcraft/
 ├── src/                          # 前端源码
 │   ├── main.tsx → App.tsx        # UI 入口
-│   ├── components/               # React 组件
+│   ├── components/               # React 组件（connection / layout / preset / settings / terminal / AboutDialog）
+│   ├── content/                  # 静态正文（如 about.md）
 │   ├── stores/                   # Zustand 状态（appStore / connectionStore / presetStore）
 │   ├── hooks/
 │   ├── types/
@@ -83,13 +87,23 @@ termcraft/
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── main.rs → lib.rs      # 应用启动入口
-│   │   ├── ipc_commands.rs       # Tauri 命令处理器（25+ 个命令）
-│   │   ├── config/store.rs       # JSON 文件持久化
-│   │   └── connection/           # 协议实现
-│   │       ├── ssh.rs
-│   │       ├── telnet.rs
-│   │       └── local.rs
-│   ├── preset/engine.rs          # 预设命令执行引擎
+│   │   ├── ipc_commands.rs       # Tauri 命令处理器
+│   │   ├── config/               # 数据模型与 JSON 持久化
+│   │   │   ├── models.rs
+│   │   │   └── store.rs
+│   │   ├── connection/           # 协议实现
+│   │   │   ├── ssh.rs
+│   │   │   ├── telnet.rs
+│   │   │   ├── local.rs
+│   │   │   ├── manager.rs        # ConnectionManager
+│   │   │   └── logger.rs         # 终端会话日志
+│   │   ├── preset/               # 预设引擎
+│   │   │   ├── engine.rs
+│   │   │   ├── scheduler.rs
+│   │   │   ├── template.rs
+│   │   │   └── models.rs
+│   │   ├── security/credentials.rs  # 系统凭据库读写
+│   │   └── reachability/mod.rs
 │   ├── tauri.conf.json           # Tauri 配置
 │   └── Cargo.toml
 ├── package.json
@@ -125,7 +139,6 @@ termcraft/
 - 预设暂停/恢复：未完全实现
 - 计划任务（PresetScheduler）：仅支持 Interval 模式，Cron 为 TODO
 - 等待条件（WaitCondition）：已定义但未在执行中使用
-- 连接编辑：`handleEdit` 目前仅打印日志
 
 ## 📄 许可证
 
