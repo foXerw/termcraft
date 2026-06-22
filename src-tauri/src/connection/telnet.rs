@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::connection::{ConnType, ConnHandler, OutputTap, emit_closed, forward_to_frontend, new_output_tap, tap_send};
 use crate::errors::AppError;
+use crate::reachability::ReachabilityService;
 use tauri::AppHandle;
 
 type WriteHalf = tokio::io::WriteHalf<TcpStream>;
@@ -16,13 +17,21 @@ pub struct TelnetHandler {
     port: u16,
     output_tap: OutputTap,
     app: AppHandle,
+    reachability: Arc<ReachabilityService>,
     write_half: Option<Arc<Mutex<WriteHalf>>>,
     alive: bool,
     read_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TelnetHandler {
-    pub fn new(id: String, name: String, host: String, port: u16, app: AppHandle) -> Self {
+    pub fn new(
+        id: String,
+        name: String,
+        host: String,
+        port: u16,
+        app: AppHandle,
+        reachability: Arc<ReachabilityService>,
+    ) -> Self {
         Self {
             id,
             name,
@@ -30,6 +39,7 @@ impl TelnetHandler {
             port,
             output_tap: new_output_tap(),
             app,
+            reachability,
             write_half: None,
             alive: false,
             read_task: None,
@@ -56,10 +66,19 @@ impl TelnetHandler {
         let tap = self.output_tap.clone();
         let app = self.app.clone();
         let id = self.id.clone();
+        let reachability = self.reachability.clone();
+        let host = self.host.clone();
+        let port = self.port;
         let read_task = tokio::spawn(async move {
             let mut buf = [0u8; 4096];
             use tokio::io::AsyncReadExt;
             let mut reader = read_half;
+            // Distinguish a network-level drop (read Err — connection reset /
+            // aborted, e.g. device rebooting) from a clean close (Ok(0) —
+            // server/logout FIN). Only the former flips reachability Down: a
+            // clean logout is not a down host. False positives self-correct on
+            // the scheduled re-probe.
+            let mut errored = false;
             loop {
                 match reader.read(&mut buf).await {
                     Ok(0) => break,
@@ -67,11 +86,17 @@ impl TelnetHandler {
                         tap_send(&tap, &buf[..n]);
                         forward_to_frontend(&frontend_channel, &buf[..n]);
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        errored = true;
+                        break;
+                    }
                 }
             }
             // Connection ended (EOF / closed): notify the frontend.
             emit_closed(&app, &id);
+            if errored {
+                reachability.mark_down_by_endpoint(&app, &host, port).await;
+            }
         });
 
         self.read_task = Some(read_task);

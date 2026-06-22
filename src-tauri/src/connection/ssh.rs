@@ -8,6 +8,7 @@ use russh_keys::key::PublicKey as SshPublicKey;
 
 use crate::connection::{AuthConfig, ConnType, ConnHandler, OutputTap, emit_closed, forward_to_frontend, new_output_tap, tap_send};
 use crate::errors::AppError;
+use crate::reachability::ReachabilityService;
 use tauri::AppHandle;
 
 /// Custom client handler that forwards received data to an mpsc channel.
@@ -17,6 +18,12 @@ struct SSHClientHandler {
     id: String,
     /// Guards against emitting the closed event more than once.
     closed: Arc<AtomicBool>,
+    /// Endpoint + reachability service, used to flag the host Down the moment
+    /// the transport drops (event-driven, no poll wait) — see
+    /// [`ReachabilityService::mark_down_by_endpoint`].
+    host: String,
+    port: u16,
+    reachability: Arc<ReachabilityService>,
 }
 
 impl SSHClientHandler {
@@ -111,6 +118,18 @@ impl Handler for SSHClientHandler {
     ) -> Result<(), Self::Error> {
         // Transport disconnected (network loss / server drop).
         self.notify_closed_once();
+        // Event-driven reachability: the host's transport just dropped (e.g.
+        // the device is rebooting), so flip the status dot red now instead of
+        // waiting for the next poll. `exit_status` (clean shell exit above)
+        // deliberately does NOT trigger this — that's a logout, not a down
+        // host. Any false positive self-corrects on the scheduled re-probe.
+        let reach = self.reachability.clone();
+        let app = self.app.clone();
+        let host = self.host.clone();
+        let port = self.port;
+        tauri::async_runtime::spawn(async move {
+            reach.mark_down_by_endpoint(&app, &host, port).await;
+        });
         Ok(())
     }
 }
@@ -124,6 +143,7 @@ pub struct SSHHandler {
     auth: AuthConfig,
     output_tap: OutputTap,
     app: AppHandle,
+    reachability: Arc<ReachabilityService>,
     session_handle: Option<Handle<SSHClientHandler>>,
     channel: Option<Channel<client::Msg>>,
     alive: bool,
@@ -132,7 +152,16 @@ pub struct SSHHandler {
 }
 
 impl SSHHandler {
-    pub fn new(id: String, name: String, host: String, port: u16, username: String, auth: AuthConfig, app: AppHandle) -> Self {
+    pub fn new(
+        id: String,
+        name: String,
+        host: String,
+        port: u16,
+        username: String,
+        auth: AuthConfig,
+        app: AppHandle,
+        reachability: Arc<ReachabilityService>,
+    ) -> Self {
         Self {
             id,
             name,
@@ -142,6 +171,7 @@ impl SSHHandler {
             auth,
             output_tap: new_output_tap(),
             app,
+            reachability,
             session_handle: None,
             channel: None,
             alive: false,
@@ -166,6 +196,9 @@ impl SSHHandler {
             app: self.app.clone(),
             id: self.id.clone(),
             closed: Arc::new(AtomicBool::new(false)),
+            host: self.host.clone(),
+            port: self.port,
+            reachability: self.reachability.clone(),
         };
 
         let mut session_handle = client::connect(

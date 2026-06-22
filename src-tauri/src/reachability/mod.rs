@@ -19,15 +19,18 @@ use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 /// Base (success) interval between probes, in seconds.
-const BASE_INTERVAL_SECS: u64 = 30;
+const BASE_INTERVAL_SECS: u64 = 10;
 /// Max backoff interval on repeated failure, in seconds.
-const CAP_SECS: u64 = 300;
+const CAP_SECS: u64 = 20;
 /// Per-probe connect timeout.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Scheduler wake-up granularity.
 const TICK: Duration = Duration::from_secs(1);
 /// Stagger between targets so they don't all fire at once.
 const STAGGER_SECS: u64 = 2;
+/// After an event-driven Down (an active session dropped), re-probe this soon
+/// so recovery is caught quickly and any false-positive Down self-corrects.
+const REPROBE_AFTER_DOWN_SECS: u64 = 3;
 
 /// Event name pushed to the frontend on status change.
 pub const EVENT: &str = "connection_status";
@@ -100,6 +103,40 @@ impl ReachabilityService {
         }
         // Drop targets no longer present (deleted connections).
         targets.retain(|id, _| keep.contains(id));
+    }
+
+    /// Event-driven Down: an active SSH/Telnet session to `host:port` just
+    /// dropped (transport disconnect / network reset — e.g. the device is
+    /// rebooting). Immediately mark every target matching that endpoint Down
+    /// and schedule a near-term re-probe, so:
+    ///   - the status dot flips red without waiting for the next poll tick;
+    ///   - recovery is caught within ~`REPROBE_AFTER_DOWN_SECS` + one poll;
+    ///   - a false positive (e.g. a clean disconnect we misclassified)
+    ///     self-corrects to green on the re-probe.
+    ///
+    /// Matching is by `host:port`, not by connection id, because a reconnected
+    /// tab gets a fresh id distinct from the saved config's id.
+    pub async fn mark_down_by_endpoint(&self, app: &AppHandle, host: &str, port: u16) {
+        let now = Utc::now().timestamp_millis();
+        let mut targets = self.targets.lock().await;
+        for (id, t) in targets.iter_mut() {
+            if t.host != host || t.port != port || t.status == Status::Down {
+                continue;
+            }
+            t.status = Status::Down;
+            t.latency_ms = None;
+            t.last_checked = Some(Utc::now().to_rfc3339());
+            t.next_check_at = now + (REPROBE_AFTER_DOWN_SECS as i64) * 1000;
+            let _ = app.emit(
+                EVENT,
+                StatusPayload {
+                    id: id.clone(),
+                    status: Status::Down,
+                    latency_ms: None,
+                    last_checked: t.last_checked.clone(),
+                },
+            );
+        }
     }
 
     /// Spawn the single scheduler loop. Owns its own copy of the Arc + the
