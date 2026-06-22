@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Button, Tree, Space, Empty, Typography, Popconfirm, Tag, Modal, Input, message } from "antd";
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, ImportOutlined } from "@ant-design/icons";
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, ImportOutlined, FolderOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import PresetEditor from "./PresetEditor";
@@ -92,19 +92,38 @@ const PresetPanel: React.FC = () => {
     </div>
   );
 
+  // Render a group node header. Mirrors the preset row's flex layout (icon +
+  // name filling + right-pinned actions) so group and preset rows line up.
+  // Hierarchy is conveyed by a folder icon, a bold name, and a preset count.
+  const renderGroupTitle = (group: PresetGroup) => {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
+        <FolderOutlined style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
+        <Typography.Text strong ellipsis style={{ flex: 1, minWidth: 0 }}>{group.name}</Typography.Text>
+        <Button type="text" icon={<EditOutlined />} size="small" style={{ opacity: 0.5, flexShrink: 0 }}
+          onClick={() => handleRenameGroup(group)} />
+        <Button type="text" icon={<DeleteOutlined />} size="small" danger style={{ opacity: 0.5, flexShrink: 0 }}
+          onClick={() => handleDeleteGroup(group.id)} />
+      </div>
+    );
+  };
+
+  // "未分组" header: same flex shape as a group (icon + name), but muted and
+  // without rename/delete since it isn't a real group.
+  const renderUngroupedTitle = () => {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
+        <UnorderedListOutlined style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
+        <Typography.Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0 }}>未分组</Typography.Text>
+      </div>
+    );
+  };
+
   // Build tree data from groups and presets
   const treeData = [
     ...groups.map((group) => ({
       key: `group-${group.id}`,
-      title: (
-        <Space>
-          <Typography.Text>{group.name}</Typography.Text>
-          <Button type="text" icon={<EditOutlined />} size="small" style={{ opacity: 0.5 }}
-            onClick={() => handleRenameGroup(group)} />
-          <Button type="text" icon={<DeleteOutlined />} size="small" danger style={{ opacity: 0.5 }}
-            onClick={() => handleDeleteGroup(group.id)} />
-        </Space>
-      ),
+      title: renderGroupTitle(group),
       children: presets
         .filter((p) => p.group_id === group.id)
         .map((p) => ({ key: `preset-${p.id}`, title: renderPresetTitle(p) })),
@@ -114,7 +133,7 @@ const PresetPanel: React.FC = () => {
     ...(presets.some((p) => !p.group_id)
       ? [{
           key: "ungrouped",
-          title: <Typography.Text style={{ color: "var(--text-secondary)" }}>未分组</Typography.Text>,
+          title: renderUngroupedTitle(),
           children: presets
             .filter((p) => !p.group_id)
             .map((p) => ({ key: `preset-${p.id}`, title: renderPresetTitle(p) })),
@@ -197,20 +216,21 @@ const PresetPanel: React.FC = () => {
         onClick={() => { setSelectedPreset(null); setEditorOpen(true); }}>
         新建预设
       </Button>
-      <Space wrap style={{ width: "100%", marginBottom: 8 }}>
-        <Button type="dashed" icon={<PlusOutlined />} size="small"
-          onClick={handleCreateGroup}>
-          新建分组
-        </Button>
-        <Button type="dashed" icon={<ImportOutlined />} size="small"
+      <Button type="dashed" icon={<PlusOutlined />} size="small" block
+        style={{ marginBottom: 8 }}
+        onClick={handleCreateGroup}>
+        新建分组
+      </Button>
+      <Space.Compact style={{ width: "100%", marginBottom: 8 }}>
+        <Button type="dashed" icon={<ImportOutlined />} size="small" block
           onClick={handleImport}>
           导入
         </Button>
-        <Button type="dashed" icon={<ExportOutlined />} size="small"
+        <Button type="dashed" icon={<ExportOutlined />} size="small" block
           onClick={() => handleExport([])}>
           导出全部
         </Button>
-      </Space>
+      </Space.Compact>
 
       {presets.length === 0 && groups.length === 0 ? (
         <Empty description="暂无预设" image={Empty.PRESENTED_IMAGE_SIMPLE} />
