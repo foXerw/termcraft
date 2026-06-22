@@ -144,6 +144,14 @@ const PresetPanel: React.FC = () => {
     if (!groupModal) return;
     const name = groupModal.value.trim();
     if (!name) return;
+    // Block duplicate group names (case-insensitive). When renaming, skip
+    // the group's own current name so re-saving unchanged is allowed.
+    const renameId = groupModal.rename?.id;
+    const dup = groups.find((g) => g.name.trim().toLowerCase() === name.toLowerCase() && g.id !== renameId);
+    if (dup) {
+      message.warning("已存在同名分组，请使用其他名称");
+      return;
+    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       if (groupModal.rename) {
