@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Modal, Form, Input, Select, InputNumber, Switch, Radio, Button, Space, message } from "antd";
+import { Modal, Form, Input, Select, InputNumber, Switch, Radio, Button, Space, AutoComplete, message } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import { useAppStore } from "../../stores/appStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -24,6 +24,30 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
   const updateConfig = useConnectionStore((s) => s.updateConfig);
 
   const isEdit = !!initialValues;
+
+  // When switching connection type, seed the port field with that type's
+  // default (SSH=22, Telnet=23) — but only if the user hasn't entered a
+  // custom port. Serial/LocalShell have no port, so clear it.
+  const onConnTypeChange = (v: string) => {
+    setConnType(v);
+    const cur = form.getFieldValue("port");
+    const isDefault = cur === undefined || cur === null || cur === "" || cur === 22 || cur === 23;
+    if (!isDefault) return;
+    if (v === "SSH") form.setFieldValue("port", 22);
+    else if (v === "Telnet") form.setFieldValue("port", 23);
+    else form.setFieldValue("port", undefined);
+  };
+
+  // Sync the `connType` rendering state whenever the dialog opens. The form
+  // is always mounted (only `open` toggles), so the useState initializer
+  // alone can't track which connection type this open is for — without this,
+  // a stale type from a previous open (e.g. Telnet) would render the wrong
+  // field set even though the Select shows SSH. Also fixes edit mode, which
+  // previously always rendered SSH fields regardless of the config's type.
+  useEffect(() => {
+    if (!open) return;
+    setConnType(initialValues?.conn_type ?? "SSH");
+  }, [open, initialValues]);
 
   // Enumerate available serial ports. Called once when the user picks Serial
   // and again on manual refresh.
@@ -95,7 +119,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
     const serial: SerialConfig | undefined = connType === "Serial"
       ? {
           port_path: values.serial_port,
-          baud_rate: values.baud_rate ?? DEFAULT_SERIAL_CONFIG.baud_rate,
+          baud_rate: values.baud_rate != null && values.baud_rate !== "" ? Number(values.baud_rate) : DEFAULT_SERIAL_CONFIG.baud_rate,
           data_bits: values.data_bits ?? DEFAULT_SERIAL_CONFIG.data_bits,
           parity: values.parity ?? DEFAULT_SERIAL_CONFIG.parity,
           stop_bits: values.stop_bits ?? DEFAULT_SERIAL_CONFIG.stop_bits,
@@ -256,7 +280,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
         onFinish={handleConnect}
       >
         <Form.Item name="conn_type" label="连接类型">
-          <Select onChange={(v) => setConnType(v)}>
+          <Select onChange={onConnTypeChange}>
             <Select.Option value="SSH">SSH</Select.Option>
             <Select.Option value="Telnet">Telnet</Select.Option>
             <Select.Option value="LocalShell">本地 Shell</Select.Option>
@@ -274,7 +298,7 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
               <Input placeholder="192.168.1.1 或 example.com" autoComplete="off" />
             </Form.Item>
             <Form.Item name="port" label="端口">
-              <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+              <InputNumber min={1} max={65535} autoComplete="off" style={{ width: "100%" }} />
             </Form.Item>
           </>
         )}
@@ -339,9 +363,26 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({ open, onCancel, initial
                 <Button icon={<ReloadOutlined />} onClick={refreshSerialPorts} loading={portsLoading} />
               </Space.Compact>
             </Form.Item>
-            <Form.Item name="baud_rate" label="波特率" rules={[{ required: true }]}>
-              <Select
-                options={[300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((b) => ({ label: String(b), value: b }))}
+            <Form.Item
+              name="baud_rate"
+              label="波特率"
+              rules={[
+                { required: true, message: "请输入波特率" },
+                {
+                  validator: (_, v) => {
+                    const n = Number(v);
+                    if (!Number.isInteger(n) || n <= 0) {
+                      return Promise.reject(new Error("波特率必须为正整数"));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+            >
+              <AutoComplete
+                options={[300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].map((b) => ({ value: b, label: String(b) }))}
+                filterOption={(input, option) => String(option?.value ?? "").includes(input)}
+                placeholder="选择或输入波特率"
               />
             </Form.Item>
             <Form.Item name="data_bits" label="数据位">
